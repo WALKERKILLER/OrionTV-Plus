@@ -89,7 +89,7 @@ export const getAdFilteredLiveUrl = (
   originalUrl: string | null,
   apiBaseUrl: string,
   sourceKey: string,
-  proxyToken?: string,
+  proxyToken?: string
 ): string | null => {
   if (!originalUrl || !apiBaseUrl || !sourceKey) {
     return null;
@@ -99,6 +99,8 @@ export const getAdFilteredLiveUrl = (
     return null;
   }
 
+  const sourceParam = sourceKey ? `&source=${encodeURIComponent(sourceKey)}` : "";
   const tokenParam = proxyToken ? `&token=${encodeURIComponent(proxyToken)}` : "";
-  return `${apiBaseUrl}/api/proxy-m3u8?url=${encodeURIComponent(originalUrl)}&source=${encodeURIComponent(sourceKey)}${tokenParam}`;
+
+  return `${apiBaseUrl}/api/proxy-m3u8?url=${encodeURIComponent(originalUrl)}${sourceParam}${tokenParam}`;
 };

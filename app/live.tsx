@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { View, FlatList, StyleSheet, ActivityIndicator, Modal, useTVEventHandler, HWEvent, Text } from "react-native";
+import type { AVPlaybackStatus } from "expo-av";
 import LivePlayer from "@/components/LivePlayer";
 import { getAdFilteredLiveUrl, getPlayableUrl } from "@/services/m3u";
 import { ThemedView } from "@/components/ThemedView";
@@ -46,18 +47,16 @@ export default function LiveScreen() {
   const applyChannels = useCallback(
     (nextChannels: LiveChannel[], sourceKey: string, nextFavoriteMap: Record<string, boolean>) => {
       setChannels(nextChannels);
+      setLoadError((prev) => (prev.startsWith("当前频道播放失败") ? "" : prev));
 
-      const groups: Record<string, LiveChannel[]> = nextChannels.reduce(
-        (acc, channel) => {
-          const groupName = channel.group || "Other";
-          if (!acc[groupName]) {
-            acc[groupName] = [];
-          }
-          acc[groupName].push(channel);
-          return acc;
-        },
-        {} as Record<string, LiveChannel[]>,
-      );
+      const groups: Record<string, LiveChannel[]> = nextChannels.reduce((acc, channel) => {
+        const groupName = channel.group || "Other";
+        if (!acc[groupName]) {
+          acc[groupName] = [];
+        }
+        acc[groupName].push(channel);
+        return acc;
+      }, {} as Record<string, LiveChannel[]>);
 
       const favoriteChannels = nextChannels.filter((channel) => {
         const favoriteKey = `${sourceKey}+${getChannelFavoriteId(channel)}`;
@@ -87,7 +86,7 @@ export default function LiveScreen() {
         setChannelTitle(null);
       }
     },
-    [getChannelFavoriteId],
+    [getChannelFavoriteId]
   );
 
   const currentChannel = channels[currentChannelIndex];
@@ -238,9 +237,20 @@ export default function LiveScreen() {
     titleTimer.current = setTimeout(() => setChannelTitle(null), 3000);
   };
 
+  const handlePlayerPlaybackStatusUpdate = useCallback((status: AVPlaybackStatus) => {
+    if (status.isLoaded && status.isPlaying) {
+      setLoadError((prev) => (prev.startsWith("当前频道播放失败") ? "" : prev));
+    }
+  }, []);
+
+  const handlePlayerPlaybackFailure = useCallback(() => {
+    setLoadError("当前频道播放失败，请手动重试或切换频道");
+  }, []);
+
   const handleSelectChannel = (channel: LiveChannel) => {
     const globalIndex = channels.findIndex((c) => c.id === channel.id);
     if (globalIndex !== -1) {
+      setLoadError("");
       setCurrentChannelIndex(globalIndex);
       showChannelTitle(channel.name);
       setIsChannelListVisible(false);
@@ -273,7 +283,7 @@ export default function LiveScreen() {
       setFavoriteMap(nextFavoriteMap);
       applyChannels(channels, selectedSourceKey, nextFavoriteMap);
     },
-    [selectedSourceKey, getChannelFavoriteId, applyChannels, channels],
+    [selectedSourceKey, getChannelFavoriteId, applyChannels, channels]
   );
 
   const changeChannel = useCallback(
@@ -283,10 +293,11 @@ export default function LiveScreen() {
         direction === "next"
           ? (currentChannelIndex + 1) % channels.length
           : (currentChannelIndex - 1 + channels.length) % channels.length;
+      setLoadError("");
       setCurrentChannelIndex(newIndex);
       showChannelTitle(channels[newIndex].name);
     },
-    [channels, currentChannelIndex],
+    [channels, currentChannelIndex]
   );
 
   const handleTVEvent = useCallback(
@@ -297,7 +308,7 @@ export default function LiveScreen() {
       else if (event.eventType === "left") changeChannel("prev");
       else if (event.eventType === "right") changeChannel("next");
     },
-    [changeChannel, isChannelListVisible, deviceType],
+    [changeChannel, isChannelListVisible, deviceType]
   );
 
   useTVEventHandler(deviceType === "tv" ? handleTVEvent : () => {});
@@ -311,7 +322,8 @@ export default function LiveScreen() {
         streamUrl={selectedChannelAdFilteredUrl || selectedChannelUrl}
         fallbackStreamUrl={selectedChannelAdFilteredUrl ? selectedChannelUrl : null}
         channelTitle={channelTitle}
-        onPlaybackStatusUpdate={() => {}}
+        onPlaybackStatusUpdate={handlePlayerPlaybackStatusUpdate}
+        onPlaybackFailure={handlePlayerPlaybackFailure}
       />
       <Modal
         animationType="slide"
@@ -373,7 +385,9 @@ export default function LiveScreen() {
                     keyExtractor={(item, index) => `${item.id}-${item.group}-${index}`}
                     renderItem={({ item }) => (
                       <StyledButton
-                        text={`${favoriteMap[`${selectedSourceKey}+${getChannelFavoriteId(item)}`] ? "★ " : ""}${item.name || "Unknown Channel"}`}
+                        text={`${favoriteMap[`${selectedSourceKey}+${getChannelFavoriteId(item)}`] ? "★ " : ""}${
+                          item.name || "Unknown Channel"
+                        }`}
                         onPress={() => handleSelectChannel(item)}
                         onLongPress={() => toggleChannelFavorite(item)}
                         isSelected={channels[currentChannelIndex]?.id === item.id}

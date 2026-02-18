@@ -8,6 +8,7 @@ interface LivePlayerProps {
   fallbackStreamUrl?: string | null;
   channelTitle?: string | null;
   onPlaybackStatusUpdate: (status: AVPlaybackStatus) => void;
+  onPlaybackFailure?: (reason: "error" | "timeout") => void;
 }
 
 const PLAYBACK_TIMEOUT = 15000; // 15 seconds
@@ -17,6 +18,7 @@ export default function LivePlayer({
   fallbackStreamUrl = null,
   channelTitle,
   onPlaybackStatusUpdate,
+  onPlaybackFailure,
 }: LivePlayerProps) {
   const video = useRef<Video>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -26,6 +28,7 @@ export default function LivePlayer({
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const hasSwitchedRef = useRef(false);
   const fallbackStreamUrlRef = useRef<string | null>(null);
+  const failureReportedRef = useRef(false);
   useKeepAwake();
 
   const startTimeout = useCallback(() => {
@@ -36,9 +39,8 @@ export default function LivePlayer({
     timeoutRef.current = setTimeout(() => {
       if (!hasSwitchedRef.current && fallbackStreamUrlRef.current) {
         hasSwitchedRef.current = true;
-        setHasSwitchedToFallback(true);
         setActiveStreamUrl(fallbackStreamUrlRef.current);
-        setStatusMessage("去广告线路失败，已切换直连...");
+        setStatusMessage("主线路失败，已切换备用线路...");
         setIsLoading(true);
         setIsTimeout(false);
         startTimeout();
@@ -48,14 +50,18 @@ export default function LivePlayer({
       setIsTimeout(true);
       setIsLoading(false);
       setStatusMessage(null);
+      if (!failureReportedRef.current) {
+        failureReportedRef.current = true;
+        onPlaybackFailure?.("timeout");
+      }
     }, PLAYBACK_TIMEOUT);
-  }, []);
+  }, [onPlaybackFailure]);
 
   const switchToFallback = useCallback(() => {
     if (!hasSwitchedRef.current && fallbackStreamUrlRef.current) {
       hasSwitchedRef.current = true;
       setActiveStreamUrl(fallbackStreamUrlRef.current);
-      setStatusMessage("去广告线路失败，已切换直连...");
+      setStatusMessage("主线路失败，已切换备用线路...");
       setIsLoading(true);
       setIsTimeout(false);
       startTimeout();
@@ -72,6 +78,7 @@ export default function LivePlayer({
     if (streamUrl) {
       fallbackStreamUrlRef.current = fallbackStreamUrl;
       hasSwitchedRef.current = false;
+      failureReportedRef.current = false;
       setActiveStreamUrl(streamUrl);
       setIsLoading(true);
       setIsTimeout(false);
@@ -80,6 +87,7 @@ export default function LivePlayer({
     } else {
       fallbackStreamUrlRef.current = null;
       hasSwitchedRef.current = false;
+      failureReportedRef.current = false;
       setActiveStreamUrl(null);
       setIsLoading(false);
       setIsTimeout(false);
@@ -101,6 +109,7 @@ export default function LivePlayer({
         }
         setIsLoading(false);
         setIsTimeout(false);
+        failureReportedRef.current = false;
         setStatusMessage(hasSwitchedRef.current ? "当前为直连线路" : null);
       } else if (status.isBuffering) {
         setIsLoading(true);
@@ -113,6 +122,10 @@ export default function LivePlayer({
           setStatusMessage(null);
           if (timeoutRef.current) {
             clearTimeout(timeoutRef.current);
+          }
+          if (!failureReportedRef.current) {
+            failureReportedRef.current = true;
+            onPlaybackFailure?.("error");
           }
         }
       }
@@ -152,6 +165,10 @@ export default function LivePlayer({
             setIsTimeout(true);
             setIsLoading(false);
             setStatusMessage(null);
+            if (!failureReportedRef.current) {
+              failureReportedRef.current = true;
+              onPlaybackFailure?.("error");
+            }
           }
         }}
       />
