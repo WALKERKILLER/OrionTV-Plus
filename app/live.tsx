@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { View, FlatList, StyleSheet, ActivityIndicator, Modal, useTVEventHandler, HWEvent, Text } from "react-native";
 import type { AVPlaybackStatus } from "expo-av";
 import LivePlayer from "@/components/LivePlayer";
-import { getAdFilteredLiveUrl, getPlayableUrl } from "@/services/m3u";
+import { getAdFilteredLiveUrl, getLegacyAdFilteredLiveUrl, getPlayableUrl } from "@/services/m3u";
 import { ThemedView } from "@/components/ThemedView";
 import { StyledButton } from "@/components/StyledButton";
 import { useSettingsStore } from "@/stores/settingsStore";
@@ -94,17 +94,16 @@ export default function LiveScreen() {
   const selectedChannelAdFilteredUrl = currentChannel
     ? getAdFilteredLiveUrl(currentChannel.url, apiBaseUrl, selectedSourceKey)
     : null;
-  const preferDirectFirst = deviceType === "tv";
-  const primaryStreamUrl = preferDirectFirst
-    ? selectedChannelUrl || selectedChannelAdFilteredUrl
-    : selectedChannelAdFilteredUrl || selectedChannelUrl;
-  const fallbackStreamUrl = preferDirectFirst
-    ? selectedChannelUrl && selectedChannelAdFilteredUrl
-      ? selectedChannelAdFilteredUrl
-      : null
-    : selectedChannelAdFilteredUrl
-    ? selectedChannelUrl
+  const selectedChannelLegacyAdFilteredUrl = currentChannel
+    ? getLegacyAdFilteredLiveUrl(currentChannel.url, apiBaseUrl, selectedSourceKey)
     : null;
+  const preferDirectFirst = deviceType === "tv";
+  const streamCandidates = preferDirectFirst
+    ? [selectedChannelUrl, selectedChannelAdFilteredUrl, selectedChannelLegacyAdFilteredUrl]
+    : [selectedChannelAdFilteredUrl, selectedChannelUrl, selectedChannelLegacyAdFilteredUrl];
+  const uniqueStreamCandidates = Array.from(new Set(streamCandidates.filter((url): url is string => !!url)));
+  const primaryStreamUrl = uniqueStreamCandidates[0] || null;
+  const fallbackStreamUrls = uniqueStreamCandidates.slice(1);
 
   const handleRefreshCurrentSource = useCallback(() => {
     if (!selectedSourceKey) {
@@ -331,7 +330,7 @@ export default function LiveScreen() {
     <>
       <LivePlayer
         streamUrl={primaryStreamUrl}
-        fallbackStreamUrl={fallbackStreamUrl}
+        fallbackStreamUrls={fallbackStreamUrls}
         channelTitle={channelTitle}
         onPlaybackStatusUpdate={handlePlayerPlaybackStatusUpdate}
         onPlaybackFailure={handlePlayerPlaybackFailure}

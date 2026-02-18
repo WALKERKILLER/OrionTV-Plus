@@ -104,3 +104,21 @@ export const getAdFilteredLiveUrl = (
 
   return `${apiBaseUrl}/api/proxy-m3u8?url=${encodeURIComponent(originalUrl)}${sourceParam}${tokenParam}`;
 };
+
+export const getLegacyAdFilteredLiveUrl = (
+  originalUrl: string | null,
+  apiBaseUrl: string,
+  sourceKey: string
+): string | null => {
+  if (!originalUrl || !apiBaseUrl || !sourceKey) {
+    return null;
+  }
+
+  if (!isHttpLiveUrl(originalUrl) || !isM3u8LiveUrl(originalUrl)) {
+    return null;
+  }
+
+  return `${apiBaseUrl}/api/proxy/m3u8?url=${encodeURIComponent(originalUrl)}&moontv-source=${encodeURIComponent(
+    sourceKey
+  )}`;
+};

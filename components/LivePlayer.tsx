@@ -5,7 +5,7 @@ import { useKeepAwake } from "expo-keep-awake";
 
 interface LivePlayerProps {
   streamUrl: string | null;
-  fallbackStreamUrl?: string | null;
+  fallbackStreamUrls?: string[];
   channelTitle?: string | null;
   onPlaybackStatusUpdate: (status: AVPlaybackStatus) => void;
   onPlaybackFailure?: (reason: "error" | "timeout") => void;
@@ -15,7 +15,7 @@ const PLAYBACK_TIMEOUT = 15000; // 15 seconds
 
 export default function LivePlayer({
   streamUrl,
-  fallbackStreamUrl = null,
+  fallbackStreamUrls = [],
   channelTitle,
   onPlaybackStatusUpdate,
   onPlaybackFailure,
@@ -26,10 +26,24 @@ export default function LivePlayer({
   const [activeStreamUrl, setActiveStreamUrl] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const hasSwitchedRef = useRef(false);
-  const fallbackStreamUrlRef = useRef<string | null>(null);
+  const streamQueueRef = useRef<string[]>([]);
+  const streamIndexRef = useRef(0);
   const failureReportedRef = useRef(false);
   useKeepAwake();
+
+  const switchToNextStream = useCallback(() => {
+    const nextIndex = streamIndexRef.current + 1;
+    const queue = streamQueueRef.current;
+    if (nextIndex < queue.length) {
+      streamIndexRef.current = nextIndex;
+      setActiveStreamUrl(queue[nextIndex]);
+      setStatusMessage("当前线路失败，已切换备用线路...");
+      setIsLoading(true);
+      setIsTimeout(false);
+      return true;
+    }
+    return false;
+  }, []);
 
   const startTimeout = useCallback(() => {
     if (timeoutRef.current) {
@@ -37,12 +51,8 @@ export default function LivePlayer({
     }
 
     timeoutRef.current = setTimeout(() => {
-      if (!hasSwitchedRef.current && fallbackStreamUrlRef.current) {
-        hasSwitchedRef.current = true;
-        setActiveStreamUrl(fallbackStreamUrlRef.current);
-        setStatusMessage("主线路失败，已切换备用线路...");
+      if (switchToNextStream()) {
         setIsLoading(true);
-        setIsTimeout(false);
         startTimeout();
         return;
       }
@@ -55,38 +65,27 @@ export default function LivePlayer({
         onPlaybackFailure?.("timeout");
       }
     }, PLAYBACK_TIMEOUT);
-  }, [onPlaybackFailure]);
-
-  const switchToFallback = useCallback(() => {
-    if (!hasSwitchedRef.current && fallbackStreamUrlRef.current) {
-      hasSwitchedRef.current = true;
-      setActiveStreamUrl(fallbackStreamUrlRef.current);
-      setStatusMessage("主线路失败，已切换备用线路...");
-      setIsLoading(true);
-      setIsTimeout(false);
-      startTimeout();
-      return true;
-    }
-    return false;
-  }, [startTimeout]);
+  }, [onPlaybackFailure, switchToNextStream]);
 
   useEffect(() => {
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
     }
 
-    if (streamUrl) {
-      fallbackStreamUrlRef.current = fallbackStreamUrl;
-      hasSwitchedRef.current = false;
+    if (streamUrl || fallbackStreamUrls.length > 0) {
+      const queue = [streamUrl, ...fallbackStreamUrls].filter((url): url is string => !!url);
+      const uniqueQueue = Array.from(new Set(queue));
+      streamQueueRef.current = uniqueQueue;
+      streamIndexRef.current = 0;
       failureReportedRef.current = false;
-      setActiveStreamUrl(streamUrl);
+      setActiveStreamUrl(uniqueQueue[0] || null);
       setIsLoading(true);
       setIsTimeout(false);
       setStatusMessage(null);
       startTimeout();
     } else {
-      fallbackStreamUrlRef.current = null;
-      hasSwitchedRef.current = false;
+      streamQueueRef.current = [];
+      streamIndexRef.current = 0;
       failureReportedRef.current = false;
       setActiveStreamUrl(null);
       setIsLoading(false);
@@ -99,7 +98,7 @@ export default function LivePlayer({
         clearTimeout(timeoutRef.current);
       }
     };
-  }, [streamUrl, fallbackStreamUrl, startTimeout]);
+  }, [streamUrl, fallbackStreamUrls, startTimeout]);
 
   const handlePlaybackStatusUpdate = (status: AVPlaybackStatus) => {
     if (status.isLoaded) {
@@ -110,13 +109,13 @@ export default function LivePlayer({
         setIsLoading(false);
         setIsTimeout(false);
         failureReportedRef.current = false;
-        setStatusMessage(hasSwitchedRef.current ? "当前为直连线路" : null);
+        setStatusMessage(streamIndexRef.current > 0 ? "当前为备用线路" : null);
       } else if (status.isBuffering) {
         setIsLoading(true);
       }
     } else {
       if (status.error) {
-        if (!switchToFallback()) {
+        if (!switchToNextStream()) {
           setIsLoading(false);
           setIsTimeout(true);
           setStatusMessage(null);
@@ -127,6 +126,8 @@ export default function LivePlayer({
             failureReportedRef.current = true;
             onPlaybackFailure?.("error");
           }
+        } else {
+          startTimeout();
         }
       }
     }
@@ -161,7 +162,7 @@ export default function LivePlayer({
         shouldPlay
         onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
         onError={(e) => {
-          if (!switchToFallback()) {
+          if (!switchToNextStream()) {
             setIsTimeout(true);
             setIsLoading(false);
             setStatusMessage(null);
@@ -169,6 +170,8 @@ export default function LivePlayer({
               failureReportedRef.current = true;
               onPlaybackFailure?.("error");
             }
+          } else {
+            startTimeout();
           }
         }}
       />
