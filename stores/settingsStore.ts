@@ -1,8 +1,14 @@
 import { create } from "zustand";
-import { SettingsManager } from "@/services/storage";
-import { api, ServerConfig } from "@/services/api";
-import { storageConfig } from "@/services/storageConfig";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { api, ServerConfig } from "@/services/api";
+import { SettingsManager } from "@/services/storage";
+import { storageConfig } from "@/services/storageConfig";
+import {
+  DEFAULT_THEME_MODE,
+  DEFAULT_THEME_PRESET,
+  ThemeMode,
+  ThemePresetKey,
+} from "@/constants/AppThemes";
 import Logger from "@/utils/Logger";
 
 const logger = Logger.withTag("SettingsStore");
@@ -15,6 +21,8 @@ interface SettingsState {
   remoteInputEnabled: boolean;
   liveAdBlockEnabled: boolean;
   vodAdBlockEnabled: boolean;
+  themePreset: ThemePresetKey;
+  themeMode: ThemeMode;
   videoSource: {
     enabledAll: boolean;
     sources: {
@@ -32,6 +40,8 @@ interface SettingsState {
   setRemoteInputEnabled: (enabled: boolean) => void;
   setLiveAdBlockEnabled: (enabled: boolean) => void;
   setVodAdBlockEnabled: (enabled: boolean) => void;
+  setThemePreset: (preset: ThemePresetKey) => void;
+  setThemeMode: (mode: ThemeMode) => void;
   saveSettings: () => Promise<void>;
   setVideoSource: (config: { enabledAll: boolean; sources: { [key: string]: boolean } }) => void;
   showModal: () => void;
@@ -45,6 +55,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   remoteInputEnabled: false,
   liveAdBlockEnabled: true,
   vodAdBlockEnabled: true,
+  themePreset: DEFAULT_THEME_PRESET,
+  themeMode: DEFAULT_THEME_MODE,
   isModalVisible: false,
   serverConfig: null,
   isLoadingServerConfig: false,
@@ -61,6 +73,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       remoteInputEnabled: settings.remoteInputEnabled || false,
       liveAdBlockEnabled: settings.liveAdBlockEnabled ?? true,
       vodAdBlockEnabled: settings.vodAdBlockEnabled ?? true,
+      themePreset: settings.themePreset ?? DEFAULT_THEME_PRESET,
+      themeMode: settings.themeMode ?? DEFAULT_THEME_MODE,
       videoSource: settings.videoSource || {
         enabledAll: true,
         sources: {},
@@ -92,9 +106,22 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setRemoteInputEnabled: (enabled) => set({ remoteInputEnabled: enabled }),
   setLiveAdBlockEnabled: (enabled) => set({ liveAdBlockEnabled: enabled }),
   setVodAdBlockEnabled: (enabled) => set({ vodAdBlockEnabled: enabled }),
+  setThemePreset: (preset) => set({ themePreset: preset }),
+  setThemeMode: (mode) => set({ themeMode: mode }),
   setVideoSource: (config) => set({ videoSource: config }),
   saveSettings: async () => {
-    const { apiBaseUrl, cronPassword, m3uUrl, remoteInputEnabled, liveAdBlockEnabled, vodAdBlockEnabled, videoSource } = get();
+    const {
+      apiBaseUrl,
+      cronPassword,
+      m3uUrl,
+      remoteInputEnabled,
+      liveAdBlockEnabled,
+      vodAdBlockEnabled,
+      themePreset,
+      themeMode,
+      videoSource,
+    } = get();
+
     const currentSettings = await SettingsManager.get();
     const currentApiBaseUrl = currentSettings.apiBaseUrl;
     let processedApiBaseUrl = apiBaseUrl.trim();
@@ -104,9 +131,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
     if (!/^https?:\/\//i.test(processedApiBaseUrl)) {
       const hostPart = processedApiBaseUrl.split("/")[0];
-      // Simple check for IP address format.
       const isIpAddress = /^((\d{1,3}\.){3}\d{1,3})(:\d+)?$/.test(hostPart);
-      // Check if the domain includes a port.
       const hasPort = /:\d+/.test(hostPart);
 
       if (isIpAddress || hasPort) {
@@ -123,13 +148,16 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       remoteInputEnabled,
       liveAdBlockEnabled,
       vodAdBlockEnabled,
+      themePreset,
+      themeMode,
       videoSource,
     });
+
     if (currentApiBaseUrl !== processedApiBaseUrl) {
       await AsyncStorage.setItem("authCookies", "");
     }
+
     api.setBaseUrl(processedApiBaseUrl);
-    // Also update the URL in the state so the input field shows the processed URL
     set({ isModalVisible: false, apiBaseUrl: processedApiBaseUrl });
     await get().fetchServerConfig();
   },

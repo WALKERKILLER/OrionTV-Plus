@@ -1,8 +1,7 @@
-import React, { useState } from "react";
-import { StyleSheet, Pressable, Platform } from "react-native";
+import React, { useMemo, useState } from "react";
+import { Pressable, StyleSheet } from "react-native";
 import { ThemedView } from "@/components/ThemedView";
-import { Colors } from "@/constants/Colors";
-import { useResponsiveLayout } from "@/hooks/useResponsiveLayout";
+import { useThemeColor } from "@/hooks/useThemeColor";
 
 interface SettingsSectionProps {
   children: React.ReactNode;
@@ -12,9 +11,46 @@ interface SettingsSectionProps {
   focusable?: boolean;
 }
 
-export const SettingsSection: React.FC<SettingsSectionProps> = ({ children, onFocus, onBlur, onPress, focusable = false }) => {
+export const SettingsSection: React.FC<SettingsSectionProps> = ({
+  children,
+  onFocus,
+  onBlur,
+  onPress,
+  focusable = false,
+}) => {
   const [isFocused, setIsFocused] = useState(false);
-  const deviceType = useResponsiveLayout().deviceType;
+
+  const surfaceColor = useThemeColor({}, "surface");
+  const borderColor = useThemeColor({}, "outlineVariant");
+  const focusRingColor = useThemeColor({}, "focusRing");
+  const overlayColor = useThemeColor({}, "overlay");
+
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        section: {
+          padding: 20,
+          marginBottom: 16,
+          borderRadius: 24,
+          borderWidth: 1,
+          borderColor,
+          backgroundColor: surfaceColor,
+        },
+        sectionFocused: {
+          borderColor: focusRingColor,
+          shadowColor: focusRingColor,
+          shadowOffset: { width: 0, height: 0 },
+          shadowOpacity: 0.32,
+          shadowRadius: 12,
+          elevation: 4,
+          backgroundColor: overlayColor,
+        },
+        sectionPressable: {
+          width: "100%",
+        },
+      }),
+    [borderColor, focusRingColor, overlayColor, surfaceColor]
+  );
 
   const handleFocus = () => {
     setIsFocused(true);
@@ -26,43 +62,15 @@ export const SettingsSection: React.FC<SettingsSectionProps> = ({ children, onFo
     onBlur?.();
   };
 
-  const handlePress = () => {
-    onPress?.();
-  }
-
   if (!focusable) {
     return <ThemedView style={styles.section}>{children}</ThemedView>;
   }
 
   return (
     <ThemedView style={[styles.section, isFocused && styles.sectionFocused]}>
-      <Pressable
-        android_ripple={Platform.isTV||deviceType !=='tv'? {color:'transparent'}:{color:Colors.dark.link}}
-        style={styles.sectionPressable}
-        // {...(Platform.isTV ? {onFocus: handleFocus, onBlur: handleBlur} : {onPress: onPress})}
-        onFocus={handleFocus}
-        onBlur={handleBlur}
-        onPress={handlePress}
-      >
+      <Pressable focusable style={styles.sectionPressable} onFocus={handleFocus} onBlur={handleBlur} onPress={onPress}>
         {children}
       </Pressable>
     </ThemedView>
   );
 };
-
-const styles = StyleSheet.create({
-  section: {
-    padding: 20,
-    marginBottom: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#333",
-  },
-  sectionFocused: {
-    borderColor: Colors.dark.primary,
-    backgroundColor: "#007AFF10",
-  },
-  sectionPressable: {
-    width: "100%",
-  },
-});

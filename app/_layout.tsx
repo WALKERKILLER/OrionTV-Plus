@@ -2,48 +2,104 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from "@react-navigation/native
 import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import { useEffect, useRef } from "react";
-import { useState } from "react";
-import { Platform, View, StyleSheet } from "react-native";
-import Toast from "react-native-toast-message";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Platform, StyleSheet, View } from "react-native";
+import Toast, { BaseToast, ErrorToast, ToastConfig } from "react-native-toast-message";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-
-import { useSettingsStore } from "@/stores/settingsStore";
-import { useRemoteControlStore } from "@/stores/remoteControlStore";
 import LoginModal from "@/components/LoginModal";
-import useAuthStore from "@/stores/authStore";
-import { useUpdateStore, initUpdateStore } from "@/stores/updateStore";
 import { UpdateModal } from "@/components/UpdateModal";
+import { getThemeColors } from "@/constants/AppThemes";
 import { UPDATE_CONFIG } from "@/constants/UpdateConfig";
 import { useResponsiveLayout } from "@/hooks/useResponsiveLayout";
-import Logger from "@/utils/Logger";
 import { api } from "@/services/api";
+import { useRemoteControlStore } from "@/stores/remoteControlStore";
+import { useSettingsStore } from "@/stores/settingsStore";
+import useAuthStore from "@/stores/authStore";
+import { initUpdateStore, useUpdateStore } from "@/stores/updateStore";
+import Logger from "@/utils/Logger";
 
 const logger = Logger.withTag("RootLayout");
 
-// Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
-  const colorScheme = "dark";
+  const themePreset = useSettingsStore((state) => state.themePreset);
+  const themeMode = useSettingsStore((state) => state.themeMode);
+
   const [loaded, error] = useFonts({
     SpaceMono: require("../assets/fonts/SpaceMono-Regular.ttf"),
   });
+
   const { loadSettings, remoteInputEnabled, apiBaseUrl, cronPassword } = useSettingsStore();
   const { startServer, stopServer } = useRemoteControlStore();
   const { checkLoginStatus } = useAuthStore();
   const { checkForUpdate, lastCheckTime } = useUpdateStore();
   const responsiveConfig = useResponsiveLayout();
+
   const hasTriggeredCronRef = useRef(false);
   const [isSettingsReady, setIsSettingsReady] = useState(false);
+
+  const themeColors = getThemeColors(themePreset, themeMode);
+
+  const toastConfig = useMemo<ToastConfig>(
+    () => ({
+      success: (props) => (
+        <BaseToast
+          {...props}
+          style={[
+            styles.toastBase,
+            {
+              backgroundColor: themeColors.surface,
+              borderColor: themeColors.success,
+            },
+          ]}
+          contentContainerStyle={styles.toastContent}
+          text1Style={[styles.toastTitle, { color: themeColors.text }]}
+          text2Style={[styles.toastMessage, { color: themeColors.icon }]}
+        />
+      ),
+      info: (props) => (
+        <BaseToast
+          {...props}
+          style={[
+            styles.toastBase,
+            {
+              backgroundColor: themeColors.surface,
+              borderColor: themeColors.secondary,
+            },
+          ]}
+          contentContainerStyle={styles.toastContent}
+          text1Style={[styles.toastTitle, { color: themeColors.text }]}
+          text2Style={[styles.toastMessage, { color: themeColors.icon }]}
+        />
+      ),
+      error: (props) => (
+        <ErrorToast
+          {...props}
+          style={[
+            styles.toastBase,
+            {
+              backgroundColor: themeColors.surface,
+              borderColor: themeColors.error,
+            },
+          ]}
+          contentContainerStyle={styles.toastContent}
+          text1Style={[styles.toastTitle, { color: themeColors.text }]}
+          text2Style={[styles.toastMessage, { color: themeColors.icon }]}
+        />
+      ),
+    }),
+    [themeColors]
+  );
 
   useEffect(() => {
     const initializeApp = async () => {
       await loadSettings();
       setIsSettingsReady(true);
     };
+
     initializeApp();
-    initUpdateStore(); // 初始化更新存储
+    initUpdateStore();
   }, [loadSettings]);
 
   useEffect(() => {
@@ -58,8 +114,8 @@ export default function RootLayout() {
     }
 
     hasTriggeredCronRef.current = true;
-    api.triggerCron(cronPassword).catch((error) => {
-      logger.warn(`Startup cron refresh skipped: ${error}`);
+    api.triggerCron(cronPassword).catch((requestError) => {
+      logger.warn(`Startup cron refresh skipped: ${requestError}`);
     });
   }, [apiBaseUrl, cronPassword, isSettingsReady]);
 
@@ -72,19 +128,16 @@ export default function RootLayout() {
     }
   }, [loaded, error]);
 
-  // 检查更新
   useEffect(() => {
     if (loaded && UPDATE_CONFIG.AUTO_CHECK && Platform.OS === "android") {
-      // 检查是否需要自动检查更新
       const shouldCheck = Date.now() - lastCheckTime > UPDATE_CONFIG.CHECK_INTERVAL;
       if (shouldCheck) {
-        checkForUpdate(true); // 静默检查
+        checkForUpdate(true);
       }
     }
   }, [loaded, lastCheckTime, checkForUpdate]);
 
   useEffect(() => {
-    // 只有在非手机端才启动远程控制服务器
     if (remoteInputEnabled && responsiveConfig.deviceType !== "mobile") {
       startServer();
     } else {
@@ -98,7 +151,7 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
-      <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
+      <ThemeProvider value={themeMode === "dark" ? DarkTheme : DefaultTheme}>
         <View style={styles.container}>
           <Stack>
             <Stack.Screen name="index" options={{ headerShown: false }} />
@@ -111,7 +164,8 @@ export default function RootLayout() {
             <Stack.Screen name="+not-found" />
           </Stack>
         </View>
-        <Toast />
+
+        <Toast config={toastConfig} topOffset={56} visibilityTime={2400} />
         <LoginModal />
         <UpdateModal />
       </ThemeProvider>
@@ -122,5 +176,28 @@ export default function RootLayout() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  toastBase: {
+    borderLeftWidth: 0,
+    borderWidth: 1,
+    borderRadius: 18,
+    minHeight: 64,
+    width: "92%",
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
+  toastContent: {
+    paddingHorizontal: 14,
+  },
+  toastTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    lineHeight: 20,
+  },
+  toastMessage: {
+    fontSize: 13,
+    lineHeight: 18,
   },
 });

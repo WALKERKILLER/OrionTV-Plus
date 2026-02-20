@@ -1,23 +1,75 @@
-import React from "react";
-import { View, StyleSheet, Platform, ActivityIndicator } from "react-native";
-import { ThemedText } from "../ThemedText";
+import React, { useMemo, useState } from "react";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { DownloadCloud } from "lucide-react-native";
 import { StyledButton } from "../StyledButton";
+import { ThemedText } from "../ThemedText";
+import { SettingsSection } from "./SettingsSection";
+import { useThemeColor } from "@/hooks/useThemeColor";
 import { useUpdateStore } from "@/stores/updateStore";
-// import { UPDATE_CONFIG } from "@/constants/UpdateConfig";
 
 export function UpdateSection() {
-  const { 
-    currentVersion, 
-    remoteVersion, 
-    updateAvailable, 
-    downloading, 
-    downloadProgress, 
+  const {
+    currentVersion,
+    remoteVersion,
+    updateAvailable,
+    downloading,
+    downloadProgress,
     checkForUpdate,
     isLatestVersion,
-    error
+    error,
   } = useUpdateStore();
 
-  const [checking, setChecking] = React.useState(false);
+  const [checking, setChecking] = useState(false);
+
+  const textColor = useThemeColor({}, "text");
+  const iconColor = useThemeColor({}, "icon");
+  const successColor = useThemeColor({}, "success");
+  const errorColor = useThemeColor({}, "error");
+  const onPrimaryColor = useThemeColor({}, "onPrimary");
+
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        titleRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
+          marginBottom: 10,
+        },
+        title: {
+          fontSize: 18,
+          lineHeight: 24,
+          fontWeight: "700",
+        },
+        row: {
+          flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 10,
+          gap: 12,
+        },
+        label: {
+          fontSize: 14,
+          lineHeight: 20,
+          color: iconColor,
+        },
+        value: {
+          flex: 1,
+          textAlign: "right",
+          fontSize: 14,
+          lineHeight: 20,
+          color: textColor,
+        },
+        buttonRow: {
+          marginTop: 14,
+        },
+        button: {
+          minWidth: 180,
+          alignSelf: "flex-end",
+        },
+      }),
+    [iconColor, textColor]
+  );
 
   const handleCheckUpdate = async () => {
     setChecking(true);
@@ -29,127 +81,54 @@ export function UpdateSection() {
   };
 
   return (
-    <View style={styles.sectionContainer}>
-      <ThemedText style={styles.sectionTitle}>应用更新</ThemedText>
+    <SettingsSection>
+      <View style={styles.titleRow}>
+        <DownloadCloud color={textColor} size={18} strokeWidth={2} />
+        <ThemedText style={styles.title}>应用更新</ThemedText>
+      </View>
 
       <View style={styles.row}>
         <ThemedText style={styles.label}>当前版本</ThemedText>
         <ThemedText style={styles.value}>v{currentVersion}</ThemedText>
       </View>
 
-      {updateAvailable && (
+      {updateAvailable ? (
         <View style={styles.row}>
           <ThemedText style={styles.label}>最新版本</ThemedText>
-          <ThemedText style={[styles.value, styles.newVersion]}>v{remoteVersion}</ThemedText>
+          <ThemedText style={[styles.value, { color: successColor }]}>v{remoteVersion}</ThemedText>
         </View>
-      )}
+      ) : null}
 
-      {isLatestVersion && remoteVersion && (
+      {isLatestVersion && remoteVersion ? (
         <View style={styles.row}>
           <ThemedText style={styles.label}>状态</ThemedText>
-          <ThemedText style={[styles.value, styles.latestVersion]}>已是最新版本</ThemedText>
+          <ThemedText style={[styles.value, { color: successColor }]}>已是最新版</ThemedText>
         </View>
-      )}
+      ) : null}
 
-      {error && (
+      {error ? (
         <View style={styles.row}>
           <ThemedText style={styles.label}>检查结果</ThemedText>
-          <ThemedText style={[styles.value, styles.errorText]}>{error}</ThemedText>
+          <ThemedText style={[styles.value, { color: errorColor }]}>{error}</ThemedText>
         </View>
-      )}
+      ) : null}
 
-      {downloading && (
+      {downloading ? (
         <View style={styles.row}>
           <ThemedText style={styles.label}>下载进度</ThemedText>
           <ThemedText style={styles.value}>{downloadProgress}%</ThemedText>
         </View>
-      )}
+      ) : null}
 
-      <View style={styles.buttonContainer}>
-        <StyledButton onPress={handleCheckUpdate} disabled={checking || downloading} style={styles.button}>
+      <View style={styles.buttonRow}>
+        <StyledButton onPress={handleCheckUpdate} disabled={checking || downloading} style={styles.button} variant="primary">
           {checking ? (
-            <ActivityIndicator color="#fff" size="small" />
+            <ActivityIndicator color={onPrimaryColor} size="small" />
           ) : (
-            <ThemedText style={styles.buttonText}>检查更新</ThemedText>
+            <ThemedText style={{ color: onPrimaryColor, fontWeight: "700" }}>检查更新</ThemedText>
           )}
         </StyledButton>
       </View>
-
-      {/* {UPDATE_CONFIG.AUTO_CHECK && (
-        <ThemedText style={styles.hint}>
-          自动检查更新已开启，每{UPDATE_CONFIG.CHECK_INTERVAL / (60 * 60 * 1000)}小时检查一次
-        </ThemedText>
-      )} */}
-    </View>
+    </SettingsSection>
   );
 }
-
-const styles = StyleSheet.create({
-  sectionContainer: {
-    marginBottom: 24,
-    padding: 16,
-    backgroundColor: Platform.select({
-      ios: "rgba(255, 255, 255, 0.05)",
-      android: "rgba(255, 255, 255, 0.05)",
-      default: "transparent",
-    }),
-    borderRadius: 8,
-  },
-  sectionTitle: {
-    fontSize: Platform.isTV ? 24 : 20,
-    fontWeight: "bold",
-    marginBottom: 16,
-    paddingTop: 8,
-  },
-  row: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  label: {
-    fontSize: Platform.isTV ? 18 : 16,
-    color: "#999",
-  },
-  value: {
-    fontSize: Platform.isTV ? 18 : 16,
-  },
-  newVersion: {
-    color: "#00bb5e",
-    fontWeight: "bold",
-  },
-  latestVersion: {
-    color: "#00bb5e",
-    fontWeight: "500",
-  },
-  errorText: {
-    color: "#ff6b6b",
-    fontWeight: "500",
-  },
-  buttonContainer: {
-    flexDirection: "row",
-    gap: 12,
-    marginTop: 16,
-    justifyContent: "center", // 居中对齐
-    alignItems: "center",
-  },
-  button: {
-    width: "90%",
-    ...(Platform.isTV && {
-      // TV平台焦点样式
-      borderWidth: 2,
-      borderColor: "transparent",
-    }),
-  },
-  buttonText: {
-    color: "#ffffff",
-    fontSize: Platform.isTV ? 16 : 14,
-    fontWeight: "500",
-  },
-  hint: {
-    fontSize: Platform.isTV ? 14 : 12,
-    color: "#666",
-    marginTop: 12,
-    textAlign: "center",
-  },
-});
