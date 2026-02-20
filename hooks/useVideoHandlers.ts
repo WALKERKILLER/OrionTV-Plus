@@ -45,14 +45,23 @@ export const useVideoHandlers = ({
     let canceled = false;
 
     const episodeIdentityUrl = currentEpisode?.rawUrl ?? currentEpisode?.url;
-    if (!vodAdBlockEnabled || !episodeIdentityUrl) {
+    const currentUrl = currentEpisode?.url;
+    const playbackStatus = usePlayerStore.getState().status;
+    const canHotSwapImmediately = !playbackStatus?.isLoaded || playbackStatus.positionMillis < 1200;
+
+    if (
+      !vodAdBlockEnabled ||
+      !episodeIdentityUrl ||
+      !canHotSwapImmediately ||
+      (currentUrl ? currentUrl.startsWith("file://") : false)
+    ) {
       return () => {
         canceled = true;
       };
     }
 
     const buildTargets = Array.from(
-      new Set([currentEpisode?.rawUrl, currentEpisode?.url].filter((url): url is string => Boolean(url)))
+      new Set([currentEpisode?.url, currentEpisode?.rawUrl].filter((url): url is string => Boolean(url)))
     );
 
     const prepareFilteredPlaylist = async () => {
@@ -66,9 +75,13 @@ export const useVideoHandlers = ({
           continue;
         }
 
-        const inserted = usePlayerStore
-          .getState()
-          .prependCurrentEpisodeCandidate(filteredUrl, episodeIdentityUrl);
+        const playerState = usePlayerStore.getState();
+        const activeEpisode = playerState.episodes[playerState.currentEpisodeIndex];
+        if (!activeEpisode || activeEpisode.url !== currentEpisode?.url) {
+          continue;
+        }
+
+        const inserted = playerState.prependCurrentEpisodeCandidate(filteredUrl, episodeIdentityUrl);
 
         if (inserted) {
           logger.info(`[ADBLOCK] Switched to local filtered playlist: ${filteredUrl}`);

@@ -1,16 +1,21 @@
-import { create } from "zustand";
+﻿import { create } from "zustand";
 import Toast from "react-native-toast-message";
 import { AVPlaybackStatus, Video } from "expo-av";
 import { RefObject } from "react";
 import { PlayRecord, PlayRecordManager, PlayerSettingsManager } from "@/services/storage";
-import { getPlaybackUrlCandidates } from "@/services/m3u";
+import {
+  createDiscontinuityFilteredM3u8Url,
+  getPlaybackUrlCandidates,
+  isHttpLiveUrl,
+  isM3u8LiveUrl,
+} from "@/services/m3u";
 import { useSettingsStore } from "@/stores/settingsStore";
 import useDetailStore, { episodesSelectorBySource } from "./detailStore";
 import Logger from '@/utils/Logger';
 
 const logger = Logger.withTag('PlayerStore');
 
-const getEpisodeTitle = (index: number) => `Episode ${index + 1}`;
+const getEpisodeTitle = (index: number) => `第${index + 1}集`; 
 
 const mapEpisodesForPlayback = (episodeUrls: string[], sourceKey: string) => {
   const { apiBaseUrl, vodAdBlockEnabled } = useSettingsStore.getState();
@@ -48,6 +53,56 @@ interface Episode {
   urlCandidates: string[];
   currentCandidateIndex: number;
 }
+
+const primeAdFilteredCandidateForEpisode = async (episodes: Episode[], episodeIndex: number): Promise<Episode[]> => {
+  const { vodAdBlockEnabled } = useSettingsStore.getState();
+  if (!vodAdBlockEnabled || episodeIndex < 0 || episodeIndex >= episodes.length) {
+    return episodes;
+  }
+
+  const targetEpisode = episodes[episodeIndex];
+  if (!targetEpisode) {
+    return episodes;
+  }
+
+  const candidateTargets = Array.from(
+    new Set(
+      [targetEpisode.url, targetEpisode.rawUrl, ...targetEpisode.urlCandidates].filter(
+        (candidate): candidate is string => Boolean(candidate)
+      )
+    )
+  );
+
+  for (const targetUrl of candidateTargets) {
+    if (!isHttpLiveUrl(targetUrl) || !isM3u8LiveUrl(targetUrl)) {
+      continue;
+    }
+
+    try {
+      const filteredUrl = await createDiscontinuityFilteredM3u8Url(targetUrl);
+      if (!filteredUrl || filteredUrl === targetEpisode.url) {
+        continue;
+      }
+
+      const nextCandidates = [filteredUrl, ...targetEpisode.urlCandidates.filter((url) => url !== filteredUrl)];
+      const nextEpisodes = [...episodes];
+      nextEpisodes[episodeIndex] = {
+        ...targetEpisode,
+        url: filteredUrl,
+        urlCandidates: nextCandidates,
+        currentCandidateIndex: 0,
+      };
+
+      logger.info(`[ADBLOCK] Prebuilt local filtered playlist for episode ${episodeIndex + 1}`);
+      return nextEpisodes;
+    } catch (error) {
+      logger.warn(`[ADBLOCK] Failed to prebuild filtered playlist: ${targetUrl}`);
+      logger.warn(error);
+    }
+  }
+
+  return episodes;
+};
 
 interface PlayerState {
   videoRef: RefObject<Video> | null;
@@ -129,7 +184,6 @@ const usePlayerStore = create<PlayerState>((set, get) => ({
     let detail = useDetailStore.getState().detail;
     let episodes: string[] = [];
     
-    // 濡傛灉鏈塪etail锛屼娇鐢╠etail鐨剆ource鑾峰彇episodes锛涘惁鍒欎娇鐢ㄤ紶鍏ョ殑source
     if (detail && detail.source) {
       logger.info(`[INFO] Using existing detail source "${detail.source}" to get episodes`);
       episodes = episodesSelectorBySource(detail.source)(useDetailStore.getState());
@@ -159,13 +213,11 @@ const usePlayerStore = create<PlayerState>((set, get) => ({
       if (!detail) {
         logger.error(`[ERROR] Detail not found after initialization for "${title}" (source: ${source}, id: ${id})`);
         
-        // 妫€鏌etailStore鐨勯敊璇姸鎬?
         const detailStoreState = useDetailStore.getState();
         if (detailStoreState.error) {
           logger.error(`[ERROR] DetailStore error: ${detailStoreState.error}`);
           set({ 
             isLoading: false,
-            // 鍙互閫夋嫨鍦ㄨ繖閲岃缃竴涓敊璇姸鎬侊紝浣唒layerStore鍙兘娌℃湁error瀛楁
           });
         } else {
           logger.error(`[ERROR] DetailStore init completed but no detail found and no error reported`);
@@ -174,23 +226,19 @@ const usePlayerStore = create<PlayerState>((set, get) => ({
         return;
       }
       
-      // 浣跨敤DetailStore鎵惧埌鐨勫疄闄卻ource鏉ヨ幏鍙杄pisodes锛岃€屼笉鏄師濮嬬殑preferredSource
       logger.info(`[INFO] Using actual source "${detail.source}" instead of preferred source "${source}"`);  
       episodes = episodesSelectorBySource(detail.source)(useDetailStore.getState());
       
       if (!episodes || episodes.length === 0) {
         logger.error(`[ERROR] No episodes found for "${title}" from source "${detail.source}" (${detail.source_name})`);
         
-        // 灏濊瘯浠巗earchResults涓洿鎺ヨ幏鍙杄pisodes
         const detailStoreState = useDetailStore.getState();
         logger.info(`[INFO] Available sources in searchResults: ${detailStoreState.searchResults.map(r => `${r.source}(${r.episodes?.length || 0} episodes)`).join(', ')}`);
         
-        // 濡傛灉褰撳墠source娌℃湁episodes锛屽皾璇曚娇鐢ㄧ涓€涓湁episodes鐨剆ource
         const sourceWithEpisodes = detailStoreState.searchResults.find(r => r.episodes && r.episodes.length > 0);
         if (sourceWithEpisodes) {
           logger.info(`[FALLBACK] Using alternative source "${sourceWithEpisodes.source}" with ${sourceWithEpisodes.episodes.length} episodes`);
           episodes = sourceWithEpisodes.episodes;
-          // 鏇存柊detail涓烘湁episodes鐨剆ource
           detail = sourceWithEpisodes;
         } else {
           logger.error(`[ERROR] No source with episodes found in searchResults`);
@@ -203,7 +251,6 @@ const usePlayerStore = create<PlayerState>((set, get) => ({
     } else {
       logger.info(`[PERF] Skipping DetailStore.init - using cached data`);
       
-      // 鍗充娇鏄紦瀛樼殑鏁版嵁锛屼篃瑕佺‘淇濅娇鐢ㄦ纭殑source鑾峰彇episodes
       if (detail && detail.source && detail.source !== source) {
         logger.info(`[INFO] Cached detail source "${detail.source}" differs from provided source "${source}", updating episodes`);
         episodes = episodesSelectorBySource(detail.source)(useDetailStore.getState());
@@ -215,7 +262,6 @@ const usePlayerStore = create<PlayerState>((set, get) => ({
       }
     }
 
-    // 鏈€缁堥獙璇侊細纭繚鎴戜滑鏈夋湁鏁堢殑detail鍜宔pisodes鏁版嵁
     if (!detail) {
       logger.error(`[ERROR] Final check failed: detail is null`);
       set({ isLoading: false });
@@ -248,6 +294,7 @@ const usePlayerStore = create<PlayerState>((set, get) => ({
       
       const episodesMappingStart = performance.now();
       const mappedEpisodes = mapEpisodesForPlayback(episodes, detail.source);
+      const preparedEpisodes = await primeAdFilteredCandidateForEpisode(mappedEpisodes, episodeIndex);
       const episodesMappingEnd = performance.now();
       logger.info(`[PERF] Episodes mapping (${episodes.length} episodes) took ${(episodesMappingEnd - episodesMappingStart).toFixed(2)}ms`);
       
@@ -256,7 +303,7 @@ const usePlayerStore = create<PlayerState>((set, get) => ({
         currentEpisodeIndex: episodeIndex,
         initialPosition: position || initialPositionFromRecord,
         playbackRate: savedPlaybackRate,
-        episodes: mappedEpisodes,
+        episodes: preparedEpisodes,
         introEndTime: playRecord?.introEndTime || playerSettings?.introEndTime,
         outroStartTime: playRecord?.outroStartTime || playerSettings?.outroStartTime,
       });
@@ -276,7 +323,10 @@ const usePlayerStore = create<PlayerState>((set, get) => ({
   playEpisode: async (index) => {
     const { episodes, videoRef } = get();
     if (index >= 0 && index < episodes.length) {
+      const preparedEpisodes = await primeAdFilteredCandidateForEpisode(episodes, index);
+
       set({
+        episodes: preparedEpisodes,
         currentEpisodeIndex: index,
         showNextEpisodeOverlay: false,
         initialPosition: 0,
@@ -287,7 +337,7 @@ const usePlayerStore = create<PlayerState>((set, get) => ({
         await videoRef?.current?.replayAsync();
       } catch (error) {
         logger.debug("Failed to replay video:", error);
-        Toast.show({ type: "error", text1: "鎾斁澶辫触" });
+        Toast.show({ type: "error", text1: "\u5207\u6362\u5267\u96c6\u5931\u8d25" });
       }
     }
   },
@@ -303,7 +353,7 @@ const usePlayerStore = create<PlayerState>((set, get) => ({
         }
       } catch (error) {
         logger.debug("Failed to toggle play/pause:", error);
-        Toast.show({ type: "error", text1: "鎿嶄綔澶辫触" });
+        Toast.show({ type: "error", text1: "\u64ad\u653e\u63a7\u5236\u5931\u8d25" });
       }
     }
   },
@@ -317,7 +367,7 @@ const usePlayerStore = create<PlayerState>((set, get) => ({
       await videoRef?.current?.setPositionAsync(newPosition);
     } catch (error) {
       logger.debug("Failed to seek video:", error);
-      Toast.show({ type: "error", text1: "蹇繘/蹇€€澶辫触" });
+      Toast.show({ type: "error", text1: "\u5feb\u8fdb\u6216\u5feb\u9000\u5931\u8d25" });
     }
 
     set({
@@ -343,7 +393,7 @@ const usePlayerStore = create<PlayerState>((set, get) => ({
       get()._savePlayRecord({ introEndTime: undefined }, { immediate: true });
       Toast.show({
         type: "info",
-        text1: "已清除片头时间",
+        text1: "\u5df2\u6e05\u9664\u7247\u5934\u65f6\u95f4",
       });
     } else {
       // Set the time
@@ -352,8 +402,8 @@ const usePlayerStore = create<PlayerState>((set, get) => ({
       get()._savePlayRecord({ introEndTime: newIntroEndTime }, { immediate: true });
       Toast.show({
         type: "success",
-        text1: "设置成功",
-        text2: "片头时间已记录",
+        text1: "\u8bbe\u7f6e\u6210\u529f",
+        text2: "\u7247\u5934\u65f6\u95f4\u5df2\u8bb0\u5f55",
       });
     }
   },
@@ -369,7 +419,7 @@ const usePlayerStore = create<PlayerState>((set, get) => ({
       get()._savePlayRecord({ outroStartTime: undefined }, { immediate: true });
       Toast.show({
         type: "info",
-        text1: "已清除片尾时间",
+        text1: "\u5df2\u6e05\u9664\u7247\u5c3e\u65f6\u95f4",
       });
     } else {
       // Set the time
@@ -379,8 +429,8 @@ const usePlayerStore = create<PlayerState>((set, get) => ({
       get()._savePlayRecord({ outroStartTime: newOutroStartTime }, { immediate: true });
       Toast.show({
         type: "success",
-        text1: "设置成功",
-        text2: "片尾时间已记录",
+        text1: "\u8bbe\u7f6e\u6210\u529f",
+        text2: "\u7247\u5c3e\u65f6\u95f4\u5df2\u8bb0\u5f55",
       });
     }
   },
@@ -614,20 +664,18 @@ const usePlayerStore = create<PlayerState>((set, get) => ({
       return;
     }
     
-    // 鏍囪褰撳墠source涓哄け璐?
     const currentSource = detail.source;
     const errorReason = `${errorType} error: ${failedUrl.substring(0, 100)}...`;
     useDetailStore.getState().markSourceAsFailed(currentSource, errorReason);
     
-    // 鑾峰彇涓嬩竴涓彲鐢ㄧ殑source
     const fallbackSource = useDetailStore.getState().getNextAvailableSource(currentSource, currentEpisodeIndex);
     
     if (!fallbackSource) {
       logger.error(`[VIDEO_ERROR] No fallback sources available for episode ${currentEpisodeIndex + 1}`);
       Toast.show({ 
         type: "error", 
-        text1: "鎾斁澶辫触", 
-        text2: "鎵€鏈夋挱鏀炬簮閮戒笉鍙敤锛岃绋嶅悗閲嶈瘯" 
+        text1: "\u64ad\u653e\u5931\u8d25", 
+        text2: "\u6ca1\u6709\u53ef\u7528\u7684\u5907\u7528\u64ad\u653e\u6e90" 
       });
       set({ isLoading: false });
       return;
@@ -636,17 +684,15 @@ const usePlayerStore = create<PlayerState>((set, get) => ({
     logger.info(`[VIDEO_ERROR] Switching to fallback source: ${fallbackSource.source} (${fallbackSource.source_name})`);
     
     try {
-      // 鏇存柊DetailStore鐨勫綋鍓峝etail涓篺allback source
       await useDetailStore.getState().setDetail(fallbackSource);
       
-      // 閲嶆柊鍔犺浇褰撳墠闆嗘暟鐨別pisodes
       const newEpisodes = fallbackSource.episodes || [];
       if (newEpisodes.length > currentEpisodeIndex) {
         const mappedEpisodes = mapEpisodesForPlayback(newEpisodes, fallbackSource.source);
         
         set({
           episodes: mappedEpisodes,
-          isLoading: false, // 璁￢ideo缁勪欢閲嶆柊娓叉煋
+          isLoading: false,
         });
         
         const perfEnd = performance.now();
@@ -655,8 +701,8 @@ const usePlayerStore = create<PlayerState>((set, get) => ({
         
         Toast.show({ 
           type: "success", 
-          text1: "宸插垏鎹㈡挱鏀炬簮", 
-          text2: `姝ｅ湪浣跨敤 ${fallbackSource.source_name}` 
+          text1: "\u5df2\u81ea\u52a8\u5207\u6362\u64ad\u653e\u6e90", 
+          text2: `\u5f53\u524d\u4f7f\u7528 ${fallbackSource.source_name}` 
         });
       } else {
         logger.error(`[VIDEO_ERROR] Fallback source doesn't have episode ${currentEpisodeIndex + 1}`);
@@ -672,7 +718,6 @@ const usePlayerStore = create<PlayerState>((set, get) => ({
 export default usePlayerStore;
 
 export const selectCurrentEpisode = (state: PlayerState) => {
-  // 澧炲己鏁版嵁瀹夊叏鎬ф鏌?
   if (
     state.episodes &&
     Array.isArray(state.episodes) &&
@@ -681,17 +726,14 @@ export const selectCurrentEpisode = (state: PlayerState) => {
     state.currentEpisodeIndex < state.episodes.length
   ) {
     const episode = state.episodes[state.currentEpisodeIndex];
-    // 纭繚episode鏈夋湁鏁堢殑URL
     if (episode && episode.url && episode.url.trim() !== "") {
       return episode;
     } else {
-      // 浠呭湪璋冭瘯妯″紡涓嬫墦鍗?
       if (__DEV__) {
         logger.debug(`[PERF] selectCurrentEpisode - episode found but invalid URL: ${episode?.url}`);
       }
     }
   } else {
-    // 浠呭湪璋冭瘯妯″紡涓嬫墦鍗?
     if (__DEV__) {
       logger.debug(`[PERF] selectCurrentEpisode - no valid episode: episodes.length=${state.episodes?.length}, currentIndex=${state.currentEpisodeIndex}`);
     }

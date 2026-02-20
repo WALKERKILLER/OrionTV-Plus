@@ -1,4 +1,4 @@
-import * as FileSystem from "expo-file-system";
+﻿import * as FileSystem from "expo-file-system";
 import Logger from "@/utils/Logger";
 
 const logger = Logger.withTag("M3U");
@@ -11,12 +11,19 @@ export interface Channel {
   group: string;
 }
 
-const AD_MARKER_TAGS = [
-  "#EXT-X-DISCONTINUITY",
+const AD_BREAK_START_TAGS = [
   "#EXT-X-CUE-OUT",
-  "#EXT-X-CUE-IN",
-  "#EXT-OATCLS-SCTE35",
+  "#EXT-X-CUE-OUT-CONT",
   "#EXT-X-SCTE35",
+  "#EXT-OATCLS-SCTE35",
+  "#EXT-X-DATERANGE",
+];
+
+const AD_BREAK_END_TAGS = ["#EXT-X-CUE-IN"];
+
+const AD_SEGMENT_HINT_PATTERNS = [
+  /(^|[\/_.-])(ad|ads|advert|commercial|promo|preroll|midroll)([\/_.-]|$)/i,
+  /(doubleclick|googleads|sponsor|youkuad|iqiyiad|txad)/i,
 ];
 
 const FILTER_CACHE_DIR = `${FileSystem.cacheDirectory}ad-filtered-m3u8/`;
@@ -93,7 +100,21 @@ export const isHttpLiveUrl = (url: string | null): boolean => {
 
 export const isM3u8LiveUrl = (url: string | null): boolean => {
   if (!url) return false;
-  return /\.m3u8($|\?)/i.test(url);
+
+  if (/\/api\/proxy(?:-m3u8|\/m3u8)/i.test(url)) {
+    return true;
+  }
+
+  if (/\.m3u8($|[?#&])/i.test(url)) {
+    return true;
+  }
+
+  try {
+    const decoded = decodeURIComponent(url);
+    return /\.m3u8($|[?#&])/i.test(decoded);
+  } catch {
+    return false;
+  }
 };
 
 const normalizeApiBaseUrl = (apiBaseUrl: string) => apiBaseUrl.replace(/\/$/, "");
@@ -109,11 +130,34 @@ const resolveUrl = (baseUrl: string, inputUrl: string) => {
 const rewriteUriAttribute = (line: string, baseUrl: string) =>
   line.replace(/URI="([^"]+)"/g, (_, uriValue: string) => `URI="${resolveUrl(baseUrl, uriValue)}"`);
 
-const shouldFilterTag = (line: string) => AD_MARKER_TAGS.some((tag) => line.startsWith(tag));
+const shouldStartAdBreak = (line: string) =>
+  AD_BREAK_START_TAGS.some((tag) => line.startsWith(tag)) ||
+  /SCTE35|CUE-OUT|DATERANGE/i.test(line);
+
+const shouldEndAdBreak = (line: string) => AD_BREAK_END_TAGS.some((tag) => line.startsWith(tag));
+
+const isLikelyAdSegment = (segmentUrl: string) =>
+  AD_SEGMENT_HINT_PATTERNS.some((pattern) => pattern.test(segmentUrl));
+
+const isSegmentMetaTag = (line: string) =>
+  line.startsWith("#EXTINF") ||
+  line.startsWith("#EXT-X-BYTERANGE") ||
+  line.startsWith("#EXT-X-PROGRAM-DATE-TIME") ||
+  line.startsWith("#EXT-X-DISCONTINUITY");
 
 const filterAndNormalizeMediaPlaylist = (playlistText: string, baseUrl: string) => {
   const lines = playlistText.split(/\r?\n/);
   const normalizedLines: string[] = [];
+  let segmentMeta: string[] = [];
+  let inAdBreak = false;
+
+  const flushSegment = (resolvedSegmentUrl: string) => {
+    const shouldSkipSegment = inAdBreak || isLikelyAdSegment(resolvedSegmentUrl);
+    if (!shouldSkipSegment) {
+      normalizedLines.push(...segmentMeta, resolvedSegmentUrl);
+    }
+    segmentMeta = [];
+  };
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
@@ -122,7 +166,14 @@ const filterAndNormalizeMediaPlaylist = (playlistText: string, baseUrl: string) 
       continue;
     }
 
-    if (shouldFilterTag(line)) {
+    if (shouldStartAdBreak(line)) {
+      inAdBreak = true;
+      continue;
+    }
+
+    if (shouldEndAdBreak(line)) {
+      inAdBreak = false;
+      segmentMeta = [];
       continue;
     }
 
@@ -131,12 +182,19 @@ const filterAndNormalizeMediaPlaylist = (playlistText: string, baseUrl: string) 
       continue;
     }
 
-    if (line.startsWith("#")) {
-      normalizedLines.push(line);
+    if (isSegmentMetaTag(line)) {
+      segmentMeta.push(line);
       continue;
     }
 
-    normalizedLines.push(resolveUrl(baseUrl, line));
+    if (line.startsWith("#")) {
+      if (!inAdBreak) {
+        normalizedLines.push(line);
+      }
+      continue;
+    }
+
+    flushSegment(resolveUrl(baseUrl, line));
   }
 
   if (!normalizedLines[0]?.startsWith("#EXTM3U")) {

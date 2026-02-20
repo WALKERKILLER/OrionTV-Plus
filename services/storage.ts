@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { api, PlayRecord as ApiPlayRecord, Favorite as ApiFavorite } from "./api";
 import { storageConfig } from "./storageConfig";
 import Logger from "@/utils/Logger";
+import { DEFAULT_THEME_MODE, DEFAULT_THEME_PRESET, ThemeMode, ThemePresetKey } from "@/constants/AppThemes";
 
 const logger = Logger.withTag("Storage");
 
@@ -43,6 +44,8 @@ export interface AppSettings {
     };
   };
   m3uUrl: string;
+  themePreset: ThemePresetKey;
+  themeMode: ThemeMode;
 }
 
 export interface LoginCredentials {
@@ -399,6 +402,8 @@ export class SettingsManager {
         sources: {},
       },
       m3uUrl: "",
+      themePreset: DEFAULT_THEME_PRESET,
+      themeMode: DEFAULT_THEME_MODE,
     };
     try {
       const data = await AsyncStorage.getItem(STORAGE_KEYS.SETTINGS);
@@ -448,3 +453,4 @@ export class LoginCredentialsManager {
     }
   }
 }
+
