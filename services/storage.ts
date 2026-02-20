@@ -34,6 +34,8 @@ export interface AppSettings {
   apiBaseUrl: string;
   cronPassword?: string;
   remoteInputEnabled: boolean;
+  liveAdBlockEnabled: boolean;
+  vodAdBlockEnabled: boolean;
   videoSource: {
     enabledAll: boolean;
     sources: {
@@ -390,6 +392,8 @@ export class SettingsManager {
       apiBaseUrl: "",
       cronPassword: "cron_secure_password",
       remoteInputEnabled: true,
+      liveAdBlockEnabled: true,
+      vodAdBlockEnabled: true,
       videoSource: {
         enabledAll: true,
         sources: {},

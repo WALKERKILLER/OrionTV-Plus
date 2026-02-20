@@ -19,7 +19,7 @@ const FAVORITES_GROUP_NAME = "收藏";
 const isSupportedLiveUrl = (url: string) => /^https?:\/\//i.test(url || "");
 
 export default function LiveScreen() {
-  const { apiBaseUrl } = useSettingsStore();
+  const { apiBaseUrl, liveAdBlockEnabled, setLiveAdBlockEnabled } = useSettingsStore();
 
   // 响应式布局配置
   const responsiveConfig = useResponsiveLayout();
@@ -97,10 +97,9 @@ export default function LiveScreen() {
   const selectedChannelLegacyAdFilteredUrl = currentChannel
     ? getLegacyAdFilteredLiveUrl(currentChannel.url, apiBaseUrl, selectedSourceKey)
     : null;
-  const preferDirectFirst = deviceType === "tv";
-  const streamCandidates = preferDirectFirst
-    ? [selectedChannelUrl, selectedChannelAdFilteredUrl, selectedChannelLegacyAdFilteredUrl]
-    : [selectedChannelAdFilteredUrl, selectedChannelUrl, selectedChannelLegacyAdFilteredUrl];
+  const streamCandidates = liveAdBlockEnabled
+    ? [selectedChannelAdFilteredUrl, selectedChannelLegacyAdFilteredUrl, selectedChannelUrl]
+    : [selectedChannelUrl, selectedChannelAdFilteredUrl, selectedChannelLegacyAdFilteredUrl];
   const uniqueStreamCandidates = Array.from(new Set(streamCandidates.filter((url): url is string => !!url)));
   const primaryStreamUrl = uniqueStreamCandidates[0] || null;
   const fallbackStreamUrls = uniqueStreamCandidates.slice(1);
@@ -116,6 +115,10 @@ export default function LiveScreen() {
       return nextCache;
     });
   }, [selectedSourceKey]);
+
+  const toggleLiveAdBlock = useCallback(() => {
+    setLiveAdBlockEnabled(!liveAdBlockEnabled);
+  }, [liveAdBlockEnabled, setLiveAdBlockEnabled]);
 
   useEffect(() => {
     const loadSources = async () => {
@@ -376,6 +379,23 @@ export default function LiveScreen() {
                 style={dynamicStyles.refreshButton}
                 textStyle={dynamicStyles.refreshButtonText}
               />
+              <StyledButton
+                onPress={toggleLiveAdBlock}
+                isSelected={liveAdBlockEnabled}
+                style={dynamicStyles.adBlockButton}
+              >
+                <View style={dynamicStyles.adBlockButtonContent}>
+                  <View
+                    style={[
+                      dynamicStyles.adBlockIcon,
+                      liveAdBlockEnabled ? dynamicStyles.adBlockIconEnabled : dynamicStyles.adBlockIconDisabled,
+                    ]}
+                  >
+                    <Text style={dynamicStyles.adBlockIconText}>AD</Text>
+                  </View>
+                  <Text style={dynamicStyles.adBlockText}>{liveAdBlockEnabled ? "去广告开" : "去广告关"}</Text>
+                </View>
+              </StyledButton>
             </View>
             {!!loadError && <Text style={dynamicStyles.errorText}>{loadError}</Text>}
             <View style={dynamicStyles.listContainer}>
@@ -500,6 +520,42 @@ const createResponsiveStyles = (deviceType: string, spacing: number) => {
     },
     refreshButtonText: {
       fontSize: isMobile ? 14 : 12,
+    },
+    adBlockButton: {
+      marginLeft: spacing / 2,
+      minHeight: isMobile ? minTouchTarget * 0.8 : undefined,
+      paddingHorizontal: spacing / 2,
+      paddingVertical: isMobile ? minTouchTarget / 5 : 6,
+    },
+    adBlockButtonContent: {
+      alignItems: "center",
+      flexDirection: "row",
+      justifyContent: "center",
+    },
+    adBlockIcon: {
+      alignItems: "center",
+      borderRadius: 10,
+      height: 20,
+      justifyContent: "center",
+      width: 20,
+    },
+    adBlockIconEnabled: {
+      backgroundColor: "rgba(34, 197, 94, 0.25)",
+    },
+    adBlockIconDisabled: {
+      backgroundColor: "rgba(255, 255, 255, 0.18)",
+    },
+    adBlockIconText: {
+      color: "#ffffff",
+      fontSize: 10,
+      fontWeight: "800",
+      lineHeight: 12,
+    },
+    adBlockText: {
+      color: "#ffffff",
+      fontSize: isMobile ? 13 : 12,
+      fontWeight: "600",
+      marginLeft: 6,
     },
     errorText: {
       color: "#ff8f8f",
