@@ -1,12 +1,11 @@
-import React from 'react';
-import { TouchableOpacity } from 'react-native';
-import { useResponsiveLayout } from '@/hooks/useResponsiveLayout';
-import { API } from '@/services/api';
+import React from "react";
+import { TouchableOpacity } from "react-native";
+import { useResponsiveLayout } from "@/hooks/useResponsiveLayout";
+import { API } from "@/services/api";
 
-// 导入不同平台的VideoCard组件
-import VideoCardMobile from './VideoCard.mobile';
-import VideoCardTablet from './VideoCard.tablet';
-import VideoCardTV from './VideoCard.tv';
+import VideoCardMobile from "./VideoCard.mobile";
+import VideoCardTablet from "./VideoCard.tablet";
+import VideoCardTV from "./VideoCard.tv";
 
 interface VideoCardProps extends React.ComponentProps<typeof TouchableOpacity> {
   id: string;
@@ -25,26 +24,22 @@ interface VideoCardProps extends React.ComponentProps<typeof TouchableOpacity> {
   api: API;
 }
 
-/**
- * 响应式VideoCard组件
- * 根据设备类型自动选择合适的VideoCard实现
- */
-const VideoCard = React.forwardRef<any, VideoCardProps>((props, ref) => {
+const VideoCardComponent = React.forwardRef<any, VideoCardProps>((props, ref) => {
   const { deviceType } = useResponsiveLayout();
 
   switch (deviceType) {
-    case 'mobile':
+    case "mobile":
       return <VideoCardMobile {...props} ref={ref} />;
-    
-    case 'tablet':
+    case "tablet":
       return <VideoCardTablet {...props} ref={ref} />;
-    
-    case 'tv':
+    case "tv":
     default:
       return <VideoCardTV {...props} ref={ref} />;
   }
 });
 
-VideoCard.displayName = 'VideoCard';
+VideoCardComponent.displayName = "VideoCard";
+
+const VideoCard = React.memo(VideoCardComponent);
 
 export default VideoCard;

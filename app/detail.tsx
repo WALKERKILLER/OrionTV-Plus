@@ -11,6 +11,7 @@ import { useResponsiveLayout } from "@/hooks/useResponsiveLayout";
 import { getCommonResponsiveStyles } from "@/utils/ResponsiveStyles";
 import ResponsiveNavigation from "@/components/navigation/ResponsiveNavigation";
 import ResponsiveHeader from "@/components/navigation/ResponsiveHeader";
+import { useThemeColor } from "@/hooks/useThemeColor";
 
 export default function DetailScreen() {
   const { q, source, id } = useLocalSearchParams<{ q: string; source?: string; id?: string }>();
@@ -20,6 +21,10 @@ export default function DetailScreen() {
   const responsiveConfig = useResponsiveLayout();
   const commonStyles = getCommonResponsiveStyles(responsiveConfig);
   const { deviceType, spacing } = responsiveConfig;
+  const textColor = useThemeColor({}, "text");
+  const mutedColor = useThemeColor({}, "icon");
+  const warningColor = useThemeColor({}, "warning");
+  const onPrimaryColor = useThemeColor({}, "onPrimary");
 
   const {
     detail,
@@ -112,7 +117,7 @@ export default function DetailScreen() {
   }
 
   // 动态样式
-  const dynamicStyles = createResponsiveStyles(deviceType, spacing);
+  const dynamicStyles = createResponsiveStyles(deviceType, spacing, { textColor, mutedColor, onPrimaryColor });
 
   const renderDetailContent = () => {
     if (deviceType === "mobile") {
@@ -131,7 +136,7 @@ export default function DetailScreen() {
                   <FontAwesome
                     name={isFavorited ? "heart" : "heart-o"}
                     size={20}
-                    color={isFavorited ? "#feff5f" : "#ccc"}
+                    color={isFavorited ? warningColor : mutedColor}
                   />
                 </StyledButton>
               </View>
@@ -227,7 +232,7 @@ export default function DetailScreen() {
                   <FontAwesome
                     name={isFavorited ? "heart" : "heart-o"}
                     size={24}
-                    color={isFavorited ? "#feff5f" : "#ccc"}
+                    color={isFavorited ? warningColor : mutedColor}
                   />
                 </StyledButton>
               </View>
@@ -329,7 +334,11 @@ export default function DetailScreen() {
   );
 }
 
-const createResponsiveStyles = (deviceType: string, spacing: number) => {
+const createResponsiveStyles = (
+  deviceType: string,
+  spacing: number,
+  tokens: { textColor: string; mutedColor: string; onPrimaryColor: string }
+) => {
   const isTV = deviceType === "tv";
   const isTablet = deviceType === "tablet";
   const isMobile = deviceType === "mobile";
@@ -390,7 +399,7 @@ const createResponsiveStyles = (deviceType: string, spacing: number) => {
       fontSize: isMobile ? 20 : isTablet ? 24 : 28,
       fontWeight: "bold",
       flexShrink: 1,
-      color: "white",
+      color: tokens.textColor,
     },
     favoriteButton: {
       padding: 10,
@@ -402,13 +411,13 @@ const createResponsiveStyles = (deviceType: string, spacing: number) => {
       marginBottom: spacing / 2,
     },
     metaText: {
-      color: "#aaa",
+      color: tokens.mutedColor,
       marginRight: spacing / 2,
       fontSize: isMobile ? 12 : 14,
     },
     description: {
       fontSize: isMobile ? 13 : 14,
-      color: "#ccc",
+      color: tokens.textColor,
       lineHeight: isMobile ? 18 : 22,
     },
 
@@ -428,7 +437,7 @@ const createResponsiveStyles = (deviceType: string, spacing: number) => {
     sourcesTitle: {
       fontSize: isMobile ? 16 : isTablet ? 18 : 20,
       fontWeight: "bold",
-      color: "white",
+      color: tokens.textColor,
     },
     sourceList: {
       flexDirection: "row",
@@ -439,7 +448,7 @@ const createResponsiveStyles = (deviceType: string, spacing: number) => {
       minHeight: isMobile ? 36 : 44,
     },
     sourceButtonText: {
-      color: "white",
+      color: tokens.textColor,
       fontSize: isMobile ? 14 : 16,
     },
     quickPlayButton: {
@@ -450,7 +459,7 @@ const createResponsiveStyles = (deviceType: string, spacing: number) => {
     },
     quickPlayButtonText: {
       fontSize: isMobile ? 12 : 14,
-      color: "white",
+      color: tokens.textColor,
     },
     badge: {
       backgroundColor: "#666",
@@ -460,7 +469,7 @@ const createResponsiveStyles = (deviceType: string, spacing: number) => {
       marginLeft: 8,
     },
     badgeText: {
-      color: "#fff",
+      color: tokens.onPrimaryColor,
       fontSize: isMobile ? 10 : 12,
       fontWeight: "bold",
       paddingBottom: 2.5,
@@ -477,7 +486,7 @@ const createResponsiveStyles = (deviceType: string, spacing: number) => {
       fontSize: isMobile ? 16 : isTablet ? 18 : 20,
       fontWeight: "bold",
       marginBottom: spacing / 2,
-      color: "white",
+      color: tokens.textColor,
     },
     episodeList: {
       flexDirection: "row",
@@ -488,7 +497,7 @@ const createResponsiveStyles = (deviceType: string, spacing: number) => {
       minHeight: isMobile ? 32 : 36,
     },
     episodeButtonText: {
-      color: "white",
+      color: tokens.textColor,
       fontSize: isMobile ? 12 : 14,
     },
   });

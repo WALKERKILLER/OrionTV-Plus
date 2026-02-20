@@ -1,89 +1,100 @@
-import React, { useState, useRef, useEffect } from "react";
-import { View, TextInput, StyleSheet, Alert, Keyboard, TouchableOpacity } from "react-native";
-import { ThemedView } from "@/components/ThemedView";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Alert, Keyboard, StyleSheet, TextInput, TouchableOpacity, View } from "react-native";
+import { useRouter } from "expo-router";
+import { QrCode, Search } from "lucide-react-native";
+import { RemoteControlModal } from "@/components/RemoteControlModal";
+import { StyledButton } from "@/components/StyledButton";
 import { ThemedText } from "@/components/ThemedText";
+import { ThemedView } from "@/components/ThemedView";
 import VideoCard from "@/components/VideoCard";
 import VideoLoadingAnimation from "@/components/VideoLoadingAnimation";
-import { api, SearchResult } from "@/services/api";
-import { Search, QrCode } from "lucide-react-native";
-import { StyledButton } from "@/components/StyledButton";
-import { useRemoteControlStore } from "@/stores/remoteControlStore";
-import { RemoteControlModal } from "@/components/RemoteControlModal";
-import { useSettingsStore } from "@/stores/settingsStore";
-import { useRouter } from "expo-router";
-import { Colors } from "@/constants/Colors";
+import ResponsiveHeader from "@/components/navigation/ResponsiveHeader";
+import ResponsiveNavigation from "@/components/navigation/ResponsiveNavigation";
 import CustomScrollView from "@/components/CustomScrollView";
 import { useResponsiveLayout } from "@/hooks/useResponsiveLayout";
-import { getCommonResponsiveStyles } from "@/utils/ResponsiveStyles";
-import ResponsiveNavigation from "@/components/navigation/ResponsiveNavigation";
-import ResponsiveHeader from "@/components/navigation/ResponsiveHeader";
+import { useThemeColor } from "@/hooks/useThemeColor";
+import { api, SearchResult } from "@/services/api";
+import { useRemoteControlStore } from "@/stores/remoteControlStore";
+import { useSettingsStore } from "@/stores/settingsStore";
 import { DeviceUtils } from "@/utils/DeviceUtils";
-import Logger from '@/utils/Logger';
+import { getCommonResponsiveStyles } from "@/utils/ResponsiveStyles";
+import Logger from "@/utils/Logger";
 
-const logger = Logger.withTag('SearchScreen');
+const logger = Logger.withTag("SearchScreen");
 
 export default function SearchScreen() {
   const [keyword, setKeyword] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const textInputRef = useRef<TextInput>(null);
   const [isInputFocused, setIsInputFocused] = useState(false);
-  const { showModal: showRemoteModal, lastMessage, targetPage, clearMessage } = useRemoteControlStore();
-  const { remoteInputEnabled } = useSettingsStore();
+
+  const textInputRef = useRef<TextInput>(null);
   const router = useRouter();
 
-  // 响应式布局配置
+  const { showModal: showRemoteModal, lastMessage, targetPage, clearMessage } = useRemoteControlStore();
+  const { remoteInputEnabled } = useSettingsStore();
+
   const responsiveConfig = useResponsiveLayout();
   const commonStyles = getCommonResponsiveStyles(responsiveConfig);
   const { deviceType, spacing } = responsiveConfig;
 
+  const primaryColor = useThemeColor({}, "primary");
+  const onPrimaryColor = useThemeColor({}, "onPrimary");
+  const surfaceVariantColor = useThemeColor({}, "surfaceVariant");
+  const textColor = useThemeColor({}, "text");
+  const mutedColor = useThemeColor({}, "icon");
+  const errorColor = useThemeColor({}, "error");
+
   useEffect(() => {
-    if (lastMessage && targetPage === 'search') {
-      logger.debug("Received remote input:", lastMessage);
-      const realMessage = lastMessage.split("_")[0];
-      setKeyword(realMessage);
-      handleSearch(realMessage);
-      clearMessage(); // Clear the message after processing
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lastMessage, targetPage]);
-
-  // useEffect(() => {
-  //   // Focus the text input when the screen loads
-  //   const timer = setTimeout(() => {
-  //     textInputRef.current?.focus();
-  //   }, 200);
-  //   return () => clearTimeout(timer);
-  // }, []);
-
-  const handleSearch = async (searchText?: string) => {
-    const term = typeof searchText === "string" ? searchText : keyword;
-    if (!term.trim()) {
-      Keyboard.dismiss();
+    if (!lastMessage || targetPage !== "search") {
       return;
     }
-    Keyboard.dismiss();
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await api.searchVideos(term);
-      if (response.results.length > 0) {
-        setResults(response.results);
-      } else {
-        setError("没有找到相关内容");
-      }
-    } catch (err) {
-      setError("搜索失败，请稍后重试。");
-      logger.info("Search failed:", err);
-    } finally {
-      setLoading(false);
+
+    logger.debug("Received remote input:", lastMessage);
+    const remoteKeyword = lastMessage.split("_")[0];
+    setKeyword(remoteKeyword);
+    clearMessage();
+
+    if (remoteKeyword.trim()) {
+      void handleSearch(remoteKeyword);
     }
-  };
+  }, [clearMessage, lastMessage, targetPage]);
 
-  const onSearchPress = () => handleSearch();
+  const handleSearch = useCallback(
+    async (rawKeyword?: string) => {
+      const term = typeof rawKeyword === "string" ? rawKeyword : keyword;
+      if (!term.trim()) {
+        Keyboard.dismiss();
+        return;
+      }
 
-  const handleQrPress = () => {
+      Keyboard.dismiss();
+      setLoading(true);
+      setError(null);
+
+      try {
+        const response = await api.searchVideos(term.trim());
+        setResults(response.results);
+
+        if (response.results.length === 0) {
+          setError("没有找到相关内容");
+        }
+      } catch (requestError) {
+        setError("搜索失败，请稍后重试。");
+        logger.info("Search failed:", requestError);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [keyword]
+  );
+
+  const onSearchPress = useCallback(() => {
+    void handleSearch();
+  }, [handleSearch]);
+
+  const handleQrPress = useCallback(() => {
     if (!remoteInputEnabled) {
       Alert.alert("远程输入未启用", "请先在设置页面中启用远程输入功能", [
         { text: "取消", style: "cancel" },
@@ -91,23 +102,35 @@ export default function SearchScreen() {
       ]);
       return;
     }
-    showRemoteModal('search');
-  };
 
-  const renderItem = ({ item }: { item: SearchResult; index: number }) => (
-    <VideoCard
-      id={item.id.toString()}
-      source={item.source}
-      title={item.title}
-      poster={item.poster}
-      year={item.year}
-      sourceName={item.source_name}
-      api={api}
-    />
+    showRemoteModal("search");
+  }, [remoteInputEnabled, router, showRemoteModal]);
+
+  const renderItem = useCallback(
+    ({ item }: { item: SearchResult; index: number }) => (
+      <VideoCard
+        id={item.id.toString()}
+        source={item.source}
+        title={item.title}
+        poster={item.poster}
+        year={item.year}
+        sourceName={item.source_name}
+        api={api}
+      />
+    ),
+    []
   );
 
-  // 动态样式
-  const dynamicStyles = createResponsiveStyles(deviceType, spacing);
+  const dynamicStyles = useMemo(
+    () =>
+      createResponsiveStyles(deviceType, spacing, {
+        errorColor,
+        inputTextColor: textColor,
+        mutedColor,
+        surfaceVariantColor,
+      }),
+    [deviceType, errorColor, mutedColor, spacing, surfaceVariantColor, textColor]
+  );
 
   const renderSearchContent = () => (
     <>
@@ -117,7 +140,7 @@ export default function SearchScreen() {
           style={[
             dynamicStyles.inputContainer,
             {
-              borderColor: isInputFocused ? Colors.dark.primary : "transparent",
+              borderColor: isInputFocused ? primaryColor : "transparent",
             },
           ]}
           onPress={() => textInputRef.current?.focus()}
@@ -126,7 +149,7 @@ export default function SearchScreen() {
             ref={textInputRef}
             style={dynamicStyles.input}
             placeholder="搜索电影、剧集..."
-            placeholderTextColor="#888"
+            placeholderTextColor={mutedColor}
             value={keyword}
             onChangeText={setKeyword}
             onSubmitEditing={onSearchPress}
@@ -135,12 +158,14 @@ export default function SearchScreen() {
             returnKeyType="search"
           />
         </TouchableOpacity>
-        <StyledButton style={dynamicStyles.searchButton} onPress={onSearchPress}>
-          <Search size={deviceType === 'mobile' ? 20 : 24} color="white" />
+
+        <StyledButton style={dynamicStyles.searchButton} onPress={onSearchPress} variant="primary">
+          <Search size={deviceType === "mobile" ? 20 : 24} color={onPrimaryColor} />
         </StyledButton>
-        {deviceType !== 'mobile' && (
-          <StyledButton style={dynamicStyles.qrButton} onPress={handleQrPress}>
-            <QrCode size={deviceType === 'tv' ? 24 : 20} color="white" />
+
+        {deviceType !== "mobile" && (
+          <StyledButton style={dynamicStyles.qrButton} onPress={handleQrPress} variant="primary">
+            <QrCode size={deviceType === "tv" ? 24 : 20} color={onPrimaryColor} />
           </StyledButton>
         )}
       </View>
@@ -158,20 +183,17 @@ export default function SearchScreen() {
           loading={loading}
           error={error}
           emptyMessage="输入关键词开始搜索"
+          enableTvBackToTop
         />
       )}
+
       <RemoteControlModal />
     </>
   );
 
-  const content = (
-    <ThemedView style={[commonStyles.container, dynamicStyles.container]}>
-      {renderSearchContent()}
-    </ThemedView>
-  );
+  const content = <ThemedView style={[commonStyles.container, dynamicStyles.container]}>{renderSearchContent()}</ThemedView>;
 
-  // 根据设备类型决定是否包装在响应式导航中
-  if (deviceType === 'tv') {
+  if (deviceType === "tv") {
     return content;
   }
 
@@ -183,14 +205,21 @@ export default function SearchScreen() {
   );
 }
 
-const createResponsiveStyles = (deviceType: string, spacing: number) => {
-  const isMobile = deviceType === 'mobile';
+type StyleTokens = {
+  errorColor: string;
+  inputTextColor: string;
+  mutedColor: string;
+  surfaceVariantColor: string;
+};
+
+const createResponsiveStyles = (deviceType: string, spacing: number, tokens: StyleTokens) => {
+  const isMobile = deviceType === "mobile";
   const minTouchTarget = DeviceUtils.getMinTouchTargetSize();
 
   return StyleSheet.create({
     container: {
       flex: 1,
-      paddingTop: deviceType === 'tv' ? 50 : 0,
+      paddingTop: deviceType === "tv" ? 50 : 0,
     },
     searchContainer: {
       flexDirection: "row",
@@ -202,17 +231,16 @@ const createResponsiveStyles = (deviceType: string, spacing: number) => {
     inputContainer: {
       flex: 1,
       height: isMobile ? minTouchTarget : 50,
-      backgroundColor: "#2c2c2e",
-      borderRadius: isMobile ? 8 : 8,
+      backgroundColor: tokens.surfaceVariantColor,
+      borderRadius: 10,
       marginRight: spacing / 2,
       borderWidth: 2,
-      borderColor: "transparent",
       justifyContent: "center",
     },
     input: {
       flex: 1,
       paddingHorizontal: spacing,
-      color: "white",
+      color: tokens.inputTextColor,
       fontSize: isMobile ? 16 : 18,
     },
     searchButton: {
@@ -220,18 +248,18 @@ const createResponsiveStyles = (deviceType: string, spacing: number) => {
       height: isMobile ? minTouchTarget : 50,
       justifyContent: "center",
       alignItems: "center",
-      borderRadius: isMobile ? 8 : 8,
-      marginRight: deviceType !== 'mobile' ? spacing / 2 : 0,
+      borderRadius: 10,
+      marginRight: deviceType !== "mobile" ? spacing / 2 : 0,
     },
     qrButton: {
       width: isMobile ? minTouchTarget : 50,
       height: isMobile ? minTouchTarget : 50,
       justifyContent: "center",
       alignItems: "center",
-      borderRadius: isMobile ? 8 : 8,
+      borderRadius: 10,
     },
     errorText: {
-      color: "red",
+      color: tokens.errorColor,
       fontSize: isMobile ? 14 : 16,
       textAlign: "center",
     },

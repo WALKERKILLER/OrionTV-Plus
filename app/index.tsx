@@ -1,35 +1,64 @@
-import React, { useEffect, useCallback, useRef, useState } from "react";
-import { View, StyleSheet, ActivityIndicator, FlatList, Pressable, Animated, StatusBar, Platform, BackHandler, ToastAndroid } from "react-native";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Animated,
+  BackHandler,
+  FlatList,
+  Platform,
+  Pressable,
+  StatusBar,
+  StyleSheet,
+  ToastAndroid,
+  View,
+  findNodeHandle,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ThemedView } from "@/components/ThemedView";
-import { ThemedText } from "@/components/ThemedText";
-import { api } from "@/services/api";
-import VideoCard from "@/components/VideoCard";
 import { useFocusEffect, useRouter } from "expo-router";
-import { Search, Settings, LogOut, Heart } from "lucide-react-native";
+import { Heart, LogOut, Search, Settings } from "lucide-react-native";
+
+import VideoCard from "@/components/VideoCard";
+import VideoLoadingAnimation from "@/components/VideoLoadingAnimation";
 import { StyledButton } from "@/components/StyledButton";
-import useHomeStore, { RowItem, Category } from "@/stores/homeStore";
-import useAuthStore from "@/stores/authStore";
 import CustomScrollView from "@/components/CustomScrollView";
-import { useResponsiveLayout } from "@/hooks/useResponsiveLayout";
-import { getCommonResponsiveStyles } from "@/utils/ResponsiveStyles";
 import ResponsiveNavigation from "@/components/navigation/ResponsiveNavigation";
+import { ThemedText } from "@/components/ThemedText";
+import { ThemedView } from "@/components/ThemedView";
 import { useApiConfig, getApiConfigErrorMessage } from "@/hooks/useApiConfig";
-import { Colors } from "@/constants/Colors";
+import { useResponsiveLayout } from "@/hooks/useResponsiveLayout";
+import { useThemeColor } from "@/hooks/useThemeColor";
+import { api } from "@/services/api";
+import useAuthStore from "@/stores/authStore";
+import useHomeStore, { Category, RowItem } from "@/stores/homeStore";
+import { useSettingsStore } from "@/stores/settingsStore";
+import { getCommonResponsiveStyles } from "@/utils/ResponsiveStyles";
 
 const LOAD_MORE_THRESHOLD = 200;
 
 export default function HomeScreen() {
   const router = useRouter();
-  const colorScheme = "dark";
-  const [selectedTag, setSelectedTag] = useState<string | null>(null);
-  const fadeAnim = useRef(new Animated.Value(0)).current;
   const insets = useSafeAreaInsets();
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const backPressTimeRef = useRef<number | null>(null);
 
-  // 响应式布局配置
+  const favoriteButtonRef = useRef<View>(null);
+  const searchButtonRef = useRef<View>(null);
+  const settingsButtonRef = useRef<View>(null);
+  const logoutButtonRef = useRef<View>(null);
+  const firstTagButtonRef = useRef<View>(null);
+  const firstContentCardRef = useRef<View>(null);
+
+  const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  const [topRightButtonHandle, setTopRightButtonHandle] = useState<number | undefined>(undefined);
+  const [firstTagButtonHandle, setFirstTagButtonHandle] = useState<number | undefined>(undefined);
+  const [firstContentCardHandle, setFirstContentCardHandle] = useState<number | undefined>(undefined);
+
+  const themeMode = useSettingsStore((state) => state.themeMode);
+  const iconColor = useThemeColor({}, "text");
+  const mutedIconColor = useThemeColor({}, "icon");
+  const linkColor = useThemeColor({}, "link");
+
   const responsiveConfig = useResponsiveLayout();
   const commonStyles = getCommonResponsiveStyles(responsiveConfig);
-  const { deviceType, spacing } = responsiveConfig;
+  const { deviceType, spacing, columns } = responsiveConfig;
 
   const {
     categories,
@@ -47,50 +76,59 @@ export default function HomeScreen() {
   const { isLoggedIn, logout } = useAuthStore();
   const apiConfigStatus = useApiConfig();
 
+  useEffect(() => {
+    const preferredTarget = isLoggedIn ? logoutButtonRef.current : settingsButtonRef.current;
+    const fallbackTarget = settingsButtonRef.current || searchButtonRef.current || favoriteButtonRef.current;
+    const handle = findNodeHandle(preferredTarget || fallbackTarget) || undefined;
+    setTopRightButtonHandle(handle);
+  }, [isLoggedIn]);
+
+  useEffect(() => {
+    const tagHandle = findNodeHandle(firstTagButtonRef.current) || undefined;
+    setFirstTagButtonHandle(tagHandle);
+  }, [selectedCategory?.title, selectedCategory?.tag, selectedCategory?.tags?.length]);
+
+  useEffect(() => {
+    const cardHandle = findNodeHandle(firstContentCardRef.current) || undefined;
+    setFirstContentCardHandle(cardHandle);
+  }, [contentData.length, selectedCategory?.title, selectedCategory?.tag]);
+
   useFocusEffect(
     useCallback(() => {
       refreshPlayRecords();
     }, [refreshPlayRecords])
   );
 
-    // 双击返回退出逻辑（只限当前页面）
-  const backPressTimeRef = useRef<number | null>(null);
-
   useFocusEffect(
     useCallback(() => {
-    const handleBackPress = () => {
-      const now = Date.now();
+      const handleBackPress = () => {
+        const now = Date.now();
 
-      // 如果还没按过返回键，或距离上次超过2秒
-      if (!backPressTimeRef.current || now - backPressTimeRef.current > 2000) {
-        backPressTimeRef.current = now;
-        ToastAndroid.show("再按一次返回键退出", ToastAndroid.SHORT);
-        return true; // 拦截返回事件，不退出
+        if (!backPressTimeRef.current || now - backPressTimeRef.current > 2000) {
+          backPressTimeRef.current = now;
+          ToastAndroid.show("再按一次返回键退出", ToastAndroid.SHORT);
+          return true;
+        }
+
+        BackHandler.exitApp();
+        return true;
+      };
+
+      if (Platform.OS === "android") {
+        const backHandler = BackHandler.addEventListener("hardwareBackPress", handleBackPress);
+        return () => {
+          backHandler.remove();
+          backPressTimeRef.current = null;
+        };
       }
 
-      // 两次返回键间隔小于2秒，退出应用
-      BackHandler.exitApp();
-      return true;
-    };
+      return undefined;
+    }, [])
+  );
 
-    // 仅限 Android 平台启用此功能
-    if (Platform.OS === "android") {
-      const backHandler = BackHandler.addEventListener("hardwareBackPress", handleBackPress);
-
-      // 返回首页时重置状态
-      return () => {
-        backHandler.remove();
-        backPressTimeRef.current = null;
-      };
-    }
-  }, [])
-);
-
-  // 统一的数据获取逻辑
   useEffect(() => {
     if (!selectedCategory) return;
 
-    // 如果是容器分类且没有选择标签，设置默认标签
     if (selectedCategory.tags && !selectedCategory.tag) {
       const defaultTag = selectedCategory.tags[0];
       setSelectedTag(defaultTag);
@@ -98,14 +136,10 @@ export default function HomeScreen() {
       return;
     }
 
-    // 只有在API配置完成且分类有效时才获取数据
     if (apiConfigStatus.isConfigured && !apiConfigStatus.needsConfiguration) {
-      // 对于有标签的分类，需要确保有标签才获取数据
       if (selectedCategory.tags && selectedCategory.tag) {
         fetchInitialData();
-      }
-      // 对于无标签的分类，直接获取数据
-      else if (!selectedCategory.tags) {
+      } else if (!selectedCategory.tags) {
         fetchInitialData();
       }
     }
@@ -118,7 +152,6 @@ export default function HomeScreen() {
     selectCategory,
   ]);
 
-  // 清除错误状态的逻辑
   useEffect(() => {
     if (apiConfigStatus.needsConfiguration && error) {
       clearError();
@@ -145,13 +178,19 @@ export default function HomeScreen() {
   const handleTagSelect = (tag: string) => {
     setSelectedTag(tag);
     if (selectedCategory) {
-      const categoryWithTag = { ...selectedCategory, tag: tag };
-      selectCategory(categoryWithTag);
+      selectCategory({ ...selectedCategory, tag });
     }
   };
 
   const renderCategory = ({ item }: { item: Category }) => {
     const isSelected = selectedCategory?.title === item.title;
+    const nextFocusDownTarget =
+      deviceType === "tv"
+        ? selectedCategory?.tags
+          ? firstTagButtonHandle
+          : firstContentCardHandle
+        : undefined;
+
     return (
       <StyledButton
         text={item.title}
@@ -159,70 +198,95 @@ export default function HomeScreen() {
         isSelected={isSelected}
         style={dynamicStyles.categoryButton}
         textStyle={dynamicStyles.categoryText}
+        nextFocusDown={nextFocusDownTarget}
       />
     );
   };
 
-  const renderContentItem = ({ item }: { item: RowItem; index: number }) => (
-    <VideoCard
-      id={item.id}
-      source={item.source}
-      title={item.title}
-      poster={item.poster}
-      year={item.year}
-      rate={item.rate}
-      progress={item.progress}
-      playTime={item.play_time}
-      episodeIndex={item.episodeIndex}
-      sourceName={item.sourceName}
-      totalEpisodes={item.totalEpisodes}
-      api={api}
-      onRecordDeleted={fetchInitialData}
-    />
-  );
+  const renderTagItem = ({ item, index }: { item: string; index: number }) => {
+    const isSelected = selectedTag === item;
+
+    return (
+      <StyledButton
+        ref={index === 0 ? firstTagButtonRef : undefined}
+        hasTVPreferredFocus={deviceType === "tv" && index === 0}
+        text={item}
+        onPress={() => handleTagSelect(item)}
+        isSelected={isSelected}
+        style={deviceType === "tv" ? dynamicStyles.tagSidebarButton : dynamicStyles.categoryButton}
+        textStyle={deviceType === "tv" ? dynamicStyles.tagSidebarText : dynamicStyles.categoryText}
+        variant="ghost"
+        nextFocusRight={deviceType === "tv" ? firstContentCardHandle : undefined}
+      />
+    );
+  };
+
+  const renderContentItem = ({ item, index }: { item: RowItem; index: number }) => {
+    const isTvFirstColumn = deviceType === "tv" && selectedCategory?.tags && index % columns === 0;
+
+    return (
+      <VideoCard
+        ref={index === 0 ? firstContentCardRef : undefined}
+        id={item.id}
+        source={item.source}
+        title={item.title}
+        poster={item.poster}
+        year={item.year}
+        rate={item.rate}
+        progress={item.progress}
+        playTime={item.play_time}
+        episodeIndex={item.episodeIndex}
+        sourceName={item.sourceName}
+        totalEpisodes={item.totalEpisodes}
+        api={api}
+        onRecordDeleted={fetchInitialData}
+        nextFocusUp={topRightButtonHandle}
+        nextFocusLeft={isTvFirstColumn ? firstTagButtonHandle : undefined}
+      />
+    );
+  };
 
   const renderFooter = () => {
     if (!loadingMore) return null;
-    return <ActivityIndicator style={{ marginVertical: 20 }} size="large" />;
+    return <VideoLoadingAnimation size="compact" showLabel={false} />;
   };
 
-  // 检查是否需要显示API配置提示
   const shouldShowApiConfig = apiConfigStatus.needsConfiguration && selectedCategory && !selectedCategory.tags;
 
-  // TV端和平板端的顶部导航
   const renderHeader = () => {
     if (deviceType === "mobile") {
-      // 移动端不显示顶部导航，使用底部Tab导航
       return null;
     }
 
     return (
       <View style={dynamicStyles.headerContainer}>
-        <View style={{ flexDirection: "row", alignItems: "center" }}>
+        <View style={dynamicStyles.headerLeft}>
           <ThemedText style={dynamicStyles.headerTitle}>首页</ThemedText>
-          <Pressable android_ripple={Platform.isTV || deviceType !== 'tv'? { color: 'transparent' } : { color: Colors.dark.link }} style={{ marginLeft: 20 }} onPress={() => router.push("/live")}>
-            {({ focused }) => (
-              <ThemedText style={[dynamicStyles.headerTitle, { color: focused ? "white" : "grey" }]}>直播</ThemedText>
-            )}
+          <Pressable
+            android_ripple={Platform.isTV || deviceType !== "tv" ? { color: "transparent" } : { color: linkColor }}
+            style={dynamicStyles.liveEntry}
+            onPress={() => router.push("/live")}
+          >
+            {({ focused }) => <ThemedText style={[dynamicStyles.headerTitle, { color: focused ? linkColor : mutedIconColor }]}>直播</ThemedText>}
           </Pressable>
         </View>
+
         <View style={dynamicStyles.rightHeaderButtons}>
-          <StyledButton style={dynamicStyles.iconButton} onPress={() => router.push("/favorites")} variant="ghost">
-            <Heart color={colorScheme === "dark" ? "white" : "black"} size={24} />
+          <StyledButton ref={favoriteButtonRef} style={dynamicStyles.iconButton} onPress={() => router.push("/favorites")} variant="ghost">
+            <Heart color={iconColor} size={24} />
           </StyledButton>
-          <StyledButton
-            style={dynamicStyles.iconButton}
-            onPress={() => router.push({ pathname: "/search" })}
-            variant="ghost"
-          >
-            <Search color={colorScheme === "dark" ? "white" : "black"} size={24} />
+
+          <StyledButton ref={searchButtonRef} style={dynamicStyles.iconButton} onPress={() => router.push({ pathname: "/search" })} variant="ghost">
+            <Search color={iconColor} size={24} />
           </StyledButton>
-          <StyledButton style={dynamicStyles.iconButton} onPress={() => router.push("/settings")} variant="ghost">
-            <Settings color={colorScheme === "dark" ? "white" : "black"} size={24} />
+
+          <StyledButton ref={settingsButtonRef} style={dynamicStyles.iconButton} onPress={() => router.push("/settings")} variant="ghost">
+            <Settings color={iconColor} size={24} />
           </StyledButton>
+
           {isLoggedIn && (
-            <StyledButton style={dynamicStyles.iconButton} onPress={logout} variant="ghost">
-              <LogOut color={colorScheme === "dark" ? "white" : "black"} size={24} />
+            <StyledButton ref={logoutButtonRef} style={dynamicStyles.iconButton} onPress={logout} variant="ghost">
+              <LogOut color={iconColor} size={24} />
             </StyledButton>
           )}
         </View>
@@ -230,7 +294,74 @@ export default function HomeScreen() {
     );
   };
 
-  // 动态样式
+  const renderContentPanel = () => {
+    if (shouldShowApiConfig) {
+      return (
+        <View style={commonStyles.center}>
+          <ThemedText type="subtitle" style={{ padding: spacing, textAlign: "center" }}>
+            {getApiConfigErrorMessage(apiConfigStatus)}
+          </ThemedText>
+        </View>
+      );
+    }
+
+    if (apiConfigStatus.isValidating) {
+      return (
+        <View style={commonStyles.center}>
+          <VideoLoadingAnimation />
+          <ThemedText type="subtitle" style={{ padding: spacing, textAlign: "center" }}>
+            正在验证服务配置...
+          </ThemedText>
+        </View>
+      );
+    }
+
+    if (apiConfigStatus.error && !apiConfigStatus.isValid) {
+      return (
+        <View style={commonStyles.center}>
+          <ThemedText type="subtitle" style={{ padding: spacing, textAlign: "center" }}>
+            {apiConfigStatus.error}
+          </ThemedText>
+        </View>
+      );
+    }
+
+    if (loading) {
+      return (
+        <View style={commonStyles.center}>
+          <VideoLoadingAnimation />
+        </View>
+      );
+    }
+
+    if (error) {
+      return (
+        <View style={commonStyles.center}>
+          <ThemedText type="subtitle" style={{ padding: spacing }}>
+            {error}
+          </ThemedText>
+        </View>
+      );
+    }
+
+    return (
+      <Animated.View style={[dynamicStyles.contentContainer, { opacity: fadeAnim }]}>
+        <CustomScrollView
+          data={contentData}
+          renderItem={renderContentItem}
+          loading={loading}
+          loadingMore={loadingMore}
+          error={error}
+          onEndReached={loadMoreData}
+          loadMoreThreshold={LOAD_MORE_THRESHOLD}
+          emptyMessage={selectedCategory?.tags ? "请选择一个子分类" : "该分类下暂无内容"}
+          ListFooterComponent={renderFooter}
+          enableTvBackToTop={deviceType === "tv"}
+        />
+      </Animated.View>
+    );
+  };
+
   const dynamicStyles = StyleSheet.create({
     container: {
       flex: 1,
@@ -243,9 +374,16 @@ export default function HomeScreen() {
       paddingHorizontal: spacing * 1.5,
       marginBottom: spacing,
     },
+    headerLeft: {
+      flexDirection: "row",
+      alignItems: "center",
+    },
+    liveEntry: {
+      marginLeft: 20,
+    },
     headerTitle: {
       fontSize: deviceType === "mobile" ? 24 : deviceType === "tablet" ? 28 : 32,
-      fontWeight: "bold",
+      fontWeight: "700",
       paddingTop: 16,
     },
     rightHeaderButtons: {
@@ -263,29 +401,61 @@ export default function HomeScreen() {
       paddingHorizontal: spacing,
     },
     categoryButton: {
-      paddingHorizontal: deviceType === "tv" ? spacing / 4 : spacing / 2,
+      paddingHorizontal: deviceType === "tv" ? spacing / 3 : spacing / 2,
       paddingVertical: spacing / 2,
       borderRadius: deviceType === "mobile" ? 6 : 8,
-      marginHorizontal: deviceType === "tv" ? spacing / 4 : spacing / 2, // TV端使用更小的间距
+      marginHorizontal: deviceType === "tv" ? spacing / 4 : spacing / 2,
     },
     categoryText: {
       fontSize: deviceType === "mobile" ? 14 : 16,
       fontWeight: "500",
+    },
+    tvBodyRow: {
+      flex: 1,
+      flexDirection: "row",
+      paddingHorizontal: spacing,
+      gap: spacing,
+    },
+    tagSidebar: {
+      flexBasis: "16.6%",
+      minWidth: 180,
+      maxWidth: 280,
+      paddingRight: spacing / 2,
+      paddingBottom: spacing,
+    },
+    tagSidebarContent: {
+      paddingBottom: spacing * 2,
+      gap: spacing / 2,
+    },
+    tagSidebarButton: {
+      width: "100%",
+      minHeight: 58,
+      justifyContent: "flex-start",
+      paddingHorizontal: spacing * 0.75,
+      marginVertical: spacing / 4,
+    },
+    tagSidebarText: {
+      textAlign: "left",
+      fontSize: 16,
+      fontWeight: "600",
+    },
+    tvContentPane: {
+      flex: 1,
+      minWidth: 0,
     },
     contentContainer: {
       flex: 1,
     },
   });
 
+  const isTvSplitLayout = deviceType === "tv" && Boolean(selectedCategory?.tags?.length);
+
   const content = (
     <ThemedView style={[commonStyles.container, dynamicStyles.container]}>
-      {/* 状态栏 */}
-      {deviceType === "mobile" && <StatusBar barStyle="light-content" />}
+      {deviceType === "mobile" && <StatusBar barStyle={themeMode === "dark" ? "light-content" : "dark-content"} />}
 
-      {/* 顶部导航 */}
       {renderHeader()}
 
-      {/* 分类选择器 */}
       <View style={dynamicStyles.categoryContainer}>
         <FlatList
           data={categories}
@@ -297,82 +467,40 @@ export default function HomeScreen() {
         />
       </View>
 
-      {/* 子分类标签 */}
-      {selectedCategory && selectedCategory.tags && (
-        <View style={dynamicStyles.categoryContainer}>
-          <FlatList
-            data={selectedCategory.tags}
-            renderItem={({ item, index }) => {
-              const isSelected = selectedTag === item;
-              return (
-                <StyledButton
-                  hasTVPreferredFocus={index === 0}
-                  text={item}
-                  onPress={() => handleTagSelect(item)}
-                  isSelected={isSelected}
-                  style={dynamicStyles.categoryButton}
-                  textStyle={dynamicStyles.categoryText}
-                  variant="ghost"
-                />
-              );
-            }}
-            keyExtractor={(item) => item}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={dynamicStyles.categoryListContent}
-          />
-        </View>
-      )}
+      {isTvSplitLayout ? (
+        <View style={dynamicStyles.tvBodyRow}>
+          <View style={dynamicStyles.tagSidebar}>
+            <FlatList
+              data={selectedCategory?.tags ?? []}
+              renderItem={renderTagItem}
+              keyExtractor={(item) => item}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={dynamicStyles.tagSidebarContent}
+            />
+          </View>
 
-      {/* 内容网格 */}
-      {shouldShowApiConfig ? (
-        <View style={commonStyles.center}>
-          <ThemedText type="subtitle" style={{ padding: spacing, textAlign: "center" }}>
-            {getApiConfigErrorMessage(apiConfigStatus)}
-          </ThemedText>
-        </View>
-      ) : apiConfigStatus.isValidating ? (
-        <View style={commonStyles.center}>
-          <ActivityIndicator size="large" />
-          <ThemedText type="subtitle" style={{ padding: spacing, textAlign: "center" }}>
-            正在验证服务器配置...
-          </ThemedText>
-        </View>
-      ) : apiConfigStatus.error && !apiConfigStatus.isValid ? (
-        <View style={commonStyles.center}>
-          <ThemedText type="subtitle" style={{ padding: spacing, textAlign: "center" }}>
-            {apiConfigStatus.error}
-          </ThemedText>
-        </View>
-      ) : loading ? (
-        <View style={commonStyles.center}>
-          <ActivityIndicator size="large" />
-        </View>
-      ) : error ? (
-        <View style={commonStyles.center}>
-          <ThemedText type="subtitle" style={{ padding: spacing }}>
-            {error}
-          </ThemedText>
+          <View style={dynamicStyles.tvContentPane}>{renderContentPanel()}</View>
         </View>
       ) : (
-        <Animated.View style={[dynamicStyles.contentContainer, { opacity: fadeAnim }]}>
-          <CustomScrollView
-            data={contentData}
-            renderItem={renderContentItem}
-            loading={loading}
-            loadingMore={loadingMore}
-            error={error}
-            onEndReached={loadMoreData}
-            loadMoreThreshold={LOAD_MORE_THRESHOLD}
-            emptyMessage={selectedCategory?.tags ? "请选择一个子分类" : "该分类下暂无内容"}
-            ListFooterComponent={renderFooter}
-          />
-        </Animated.View>
+        <>
+          {selectedCategory?.tags && (
+            <View style={dynamicStyles.categoryContainer}>
+              <FlatList
+                data={selectedCategory.tags}
+                renderItem={renderTagItem}
+                keyExtractor={(item) => item}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={dynamicStyles.categoryListContent}
+              />
+            </View>
+          )}
+          {renderContentPanel()}
+        </>
       )}
     </ThemedView>
   );
 
-  // 根据设备类型决定是否包装在响应式导航中
   if (deviceType === "tv") {
     return content;
   }

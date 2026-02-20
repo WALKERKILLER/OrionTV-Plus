@@ -1,32 +1,34 @@
 import React, { ComponentProps } from "react";
+import { StyleSheet, View } from "react-native";
 import { StyledButton } from "./StyledButton";
-import { StyleSheet, View, Text } from "react-native";
+import { ThemedText } from "./ThemedText";
 
 type StyledButtonProps = ComponentProps<typeof StyledButton> & {
   timeLabel?: string;
 };
 
 export const MediaButton = ({ timeLabel, ...props }: StyledButtonProps) => (
-  <View>
+  <View style={styles.container}>
     <StyledButton {...props} style={[styles.mediaControlButton, props.style]} variant="ghost" />
-    {timeLabel && <Text style={styles.timeLabel}>{timeLabel}</Text>}
+    {timeLabel ? <ThemedText style={styles.timeLabel}>{timeLabel}</ThemedText> : null}
   </View>
 );
 
 const styles = StyleSheet.create({
+  container: {
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 86,
+  },
   mediaControlButton: {
-    padding: 12,
-    minWidth: 80,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    minWidth: 82,
   },
   timeLabel: {
-    position: "absolute",
-    top: 14,
-    right: 12,
-    color: "white",
-    fontSize: 10,
-    fontWeight: "bold",
-    backgroundColor: "rgba(0,0,0,0.6)",
-    paddingHorizontal: 4,
-    borderRadius: 3,
+    marginTop: 6,
+    fontSize: 12,
+    lineHeight: 16,
+    opacity: 0.9,
   },
 });

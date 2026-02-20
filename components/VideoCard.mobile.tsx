@@ -122,7 +122,13 @@ const VideoCardMobile = forwardRef<View, VideoCardMobileProps>(
           delayLongPress={800}
         >
           <View style={styles.card}>
-            <Image source={{ uri: api.getImageProxyUrl(poster) }} style={styles.poster} />
+            <Image
+              source={{ uri: api.getImageProxyUrl(poster) }}
+              style={styles.poster}
+              resizeMode="cover"
+              progressiveRenderingEnabled
+              fadeDuration={120}
+            />
             
             {/* 进度条 */}
             {isContinueWatching && (
