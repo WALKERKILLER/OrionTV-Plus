@@ -1,53 +1,59 @@
-import React, { useState, useEffect, useRef } from "react";
-import { View, StyleSheet, Alert, Platform } from "react-native";
-import { useTVEventHandler } from "react-native";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Alert, Platform, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
+import Toast from "react-native-toast-message";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { StyledButton } from "@/components/StyledButton";
-import { useThemeColor } from "@/hooks/useThemeColor";
-import { useSettingsStore } from "@/stores/settingsStore";
-// import useAuthStore from "@/stores/authStore";
-import { useRemoteControlStore } from "@/stores/remoteControlStore";
 import { APIConfigSection } from "@/components/settings/APIConfigSection";
 import { RemoteInputSection } from "@/components/settings/RemoteInputSection";
+import { ThemeSection } from "@/components/settings/ThemeSection";
 import { UpdateSection } from "@/components/settings/UpdateSection";
-// import { VideoSourceSection } from "@/components/settings/VideoSourceSection";
-import Toast from "react-native-toast-message";
-import { useResponsiveLayout } from "@/hooks/useResponsiveLayout";
-import { getCommonResponsiveStyles } from "@/utils/ResponsiveStyles";
-import ResponsiveNavigation from "@/components/navigation/ResponsiveNavigation";
 import ResponsiveHeader from "@/components/navigation/ResponsiveHeader";
+import ResponsiveNavigation from "@/components/navigation/ResponsiveNavigation";
+import { useThemeColor } from "@/hooks/useThemeColor";
+import { useResponsiveLayout } from "@/hooks/useResponsiveLayout";
+import { useRemoteControlStore } from "@/stores/remoteControlStore";
+import { useSettingsStore } from "@/stores/settingsStore";
 import { DeviceUtils } from "@/utils/DeviceUtils";
-import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 
 type SectionItem = {
   component: React.ReactElement;
   key: string;
 };
 
-/** 过滤掉 false/undefined，帮 TypeScript 推断出真正的数组元素类型 */
-function isSectionItem(item: false | undefined | SectionItem): item is SectionItem {
-  return !!item;
+function isSectionItem(item: false | SectionItem): item is SectionItem {
+  return Boolean(item);
 }
 
 export default function SettingsScreen() {
-  const { loadSettings, saveSettings, setApiBaseUrl } = useSettingsStore();
-  const { lastMessage, targetPage, clearMessage } = useRemoteControlStore();
-  const backgroundColor = useThemeColor({}, "background");
-  const insets = useSafeAreaInsets();
+  const {
+    loadSettings,
+    saveSettings,
+    setApiBaseUrl,
+    themePreset,
+    themeMode,
+    setThemePreset,
+    setThemeMode,
+  } = useSettingsStore();
 
-  // 响应式布局配置
-  const responsiveConfig = useResponsiveLayout();
-  const commonStyles = getCommonResponsiveStyles(responsiveConfig);
-  const { deviceType, spacing } = responsiveConfig;
+  const { lastMessage, targetPage, clearMessage } = useRemoteControlStore();
+
+  const backgroundColor = useThemeColor({}, "background");
+  const surfaceColor = useThemeColor({}, "surface");
+  const borderColor = useThemeColor({}, "outlineVariant");
+  const titleColor = useThemeColor({}, "text");
+
+  const insets = useSafeAreaInsets();
+  const { deviceType, spacing } = useResponsiveLayout();
 
   const [hasChanges, setHasChanges] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [currentFocusIndex, setCurrentFocusIndex] = useState(0);
   const [currentSection, setCurrentSection] = useState<string | null>(null);
+  const [remoteToggleHandle, setRemoteToggleHandle] = useState<number | undefined>(undefined);
+  const [apiPrimaryInputHandle, setApiPrimaryInputHandle] = useState<number | undefined>(undefined);
 
-  const saveButtonRef = useRef<any>(null);
   const apiSectionRef = useRef<any>(null);
 
   useEffect(() => {
@@ -57,20 +63,13 @@ export default function SettingsScreen() {
   useEffect(() => {
     if (lastMessage && !targetPage) {
       const realMessage = lastMessage.split("_")[0];
-      handleRemoteInput(realMessage);
-      clearMessage(); // Clear the message after processing
-      markAsChanged();
+      if (currentSection === "api" && apiSectionRef.current) {
+        setApiBaseUrl(realMessage);
+        setHasChanges(true);
+      }
+      clearMessage();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lastMessage, targetPage]);
-
-  const handleRemoteInput = (message: string) => {
-    // Handle remote input based on currently focused section
-    if (currentSection === "api" && apiSectionRef.current) {
-      // API Config Section
-      setApiBaseUrl(message);
-    }
-  };
+  }, [clearMessage, currentSection, lastMessage, setApiBaseUrl, targetPage]);
 
   const handleSave = async () => {
     setIsLoading(true);
@@ -79,10 +78,10 @@ export default function SettingsScreen() {
       setHasChanges(false);
       Toast.show({
         type: "success",
-        text1: "保存成功",
+        text1: "设置已保存",
       });
     } catch {
-      Alert.alert("错误", "保存设置失败");
+      Alert.alert("保存失败", "请稍后重试。");
     } finally {
       setIsLoading(false);
     }
@@ -92,74 +91,28 @@ export default function SettingsScreen() {
     setHasChanges(true);
   };
 
-  // const sections = [
-  //   // 远程输入配置 - 仅在非手机端显示
-  //   deviceType !== "mobile" && {
-  //     component: (
-  //       <RemoteInputSection
-  //         onChanged={markAsChanged}
-  //         onFocus={() => {
-  //           setCurrentFocusIndex(0);
-  //           setCurrentSection("remote");
-  //         }}
-  //       />
-  //     ),
-  //     key: "remote",
-  //   },
-  //   {
-  //     component: (
-  //       <APIConfigSection
-  //         ref={apiSectionRef}
-  //         onChanged={markAsChanged}
-  //         hideDescription={deviceType === "mobile"}
-  //         onFocus={() => {
-  //           setCurrentFocusIndex(1);
-  //           setCurrentSection("api");
-  //         }}
-  //       />
-  //     ),
-  //     key: "api",
-  //   },
-  //   // 直播源配置 - 仅在非手机端显示
-  //   deviceType !== "mobile" && {
-  //     component: (
-  //       <LiveStreamSection
-  //         ref={liveStreamSectionRef}
-  //         onChanged={markAsChanged}
-  //         onFocus={() => {
-  //           setCurrentFocusIndex(2);
-  //           setCurrentSection("livestream");
-  //         }}
-  //       />
-  //     ),
-  //     key: "livestream",
-  //   },
-  //   // {
-  //   //   component: (
-  //   //     <VideoSourceSection
-  //   //       onChanged={markAsChanged}
-  //   //       onFocus={() => {
-  //   //         setCurrentFocusIndex(3);
-  //   //         setCurrentSection("videoSource");
-  //   //       }}
-  //   //     />
-  //   //   ),
-  //   //   key: "videoSource",
-  //   // },
-  //   Platform.OS === "android" && {
-  //     component: <UpdateSection />,
-  //     key: "update",
-  //   },
-  // ].filter(Boolean);
   const rawSections = [
+    {
+      component: (
+        <ThemeSection
+          themePreset={themePreset}
+          themeMode={themeMode}
+          onThemePresetChange={setThemePreset}
+          onThemeModeChange={setThemeMode}
+          onChanged={markAsChanged}
+        />
+      ),
+      key: "theme",
+    },
     deviceType !== "mobile" && {
       component: (
         <RemoteInputSection
           onChanged={markAsChanged}
           onFocus={() => {
-            setCurrentFocusIndex(0);
             setCurrentSection("remote");
           }}
+          nextFocusDown={apiPrimaryInputHandle}
+          onToggleHandleChange={setRemoteToggleHandle}
         />
       ),
       key: "remote",
@@ -171,9 +124,10 @@ export default function SettingsScreen() {
           onChanged={markAsChanged}
           hideDescription={deviceType === "mobile"}
           onFocus={() => {
-            setCurrentFocusIndex(1);
             setCurrentSection("api");
           }}
+          nextFocusUp={remoteToggleHandle}
+          onPrimaryInputHandleChange={setApiPrimaryInputHandle}
         />
       ),
       key: "api",
@@ -182,102 +136,71 @@ export default function SettingsScreen() {
       component: <UpdateSection />,
       key: "update",
     },
-  ] as const; // 把每个对象都当作字面量保留
-  /** 这里得到的 sections 已经是 SectionItem[]（没有 false） */
+  ] as const;
+
   const sections: SectionItem[] = rawSections.filter(isSectionItem);
 
-  // TV遥控器事件处理 - 仅在TV设备上启用
-  const handleTVEvent = React.useCallback(
-    (event: any) => {
-      if (deviceType !== "tv") return;
-
-      if (event.eventType === "down") {
-        const nextIndex = Math.min(currentFocusIndex + 1, sections.length);
-        setCurrentFocusIndex(nextIndex);
-        if (nextIndex === sections.length) {
-          saveButtonRef.current?.focus();
-        }
-      } else if (event.eventType === "up") {
-        const prevIndex = Math.max(currentFocusIndex - 1, 0);
-        setCurrentFocusIndex(prevIndex);
-      }
-    },
-    [currentFocusIndex, sections.length, deviceType],
+  const styles = useMemo(
+    () => createResponsiveStyles(deviceType, spacing, insets, surfaceColor, borderColor),
+    [borderColor, deviceType, insets, spacing, surfaceColor]
   );
 
-  useTVEventHandler(deviceType === "tv" ? handleTVEvent : () => {});
-
-  // 动态样式
-  const dynamicStyles = createResponsiveStyles(deviceType, spacing, insets);
-
-  const renderSettingsContent = () => (
-    // <KeyboardAvoidingView style={{ flex: 1, backgroundColor }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+  const content = (
     <KeyboardAwareScrollView
-      enableOnAndroid={true}
-      extraScrollHeight={20}
+      enableOnAndroid
+      extraScrollHeight={24}
       keyboardOpeningTime={0}
       keyboardShouldPersistTaps="always"
-      scrollEnabled={true}
       style={{ flex: 1, backgroundColor }}
     >
-      <ThemedView style={[commonStyles.container, dynamicStyles.container]}>
+      <ThemedView style={styles.container}>
         {deviceType === "tv" && (
-          <View style={dynamicStyles.header}>
-            <ThemedText style={dynamicStyles.title}>设置</ThemedText>
+          <View style={styles.header}>
+            <ThemedText style={[styles.title, { color: titleColor }]}>{"\u7cfb\u7edf\u8bbe\u7f6e"}</ThemedText>
+            <ThemedText style={styles.subtitle}>{"\u6309\u9700\u8c03\u6574\u5e38\u7528\u8bbe\u7f6e\u9879"}</ThemedText>
           </View>
         )}
 
-        {/* <View style={dynamicStyles.scrollView}>
-          <FlatList
-            data={sections}
-            renderItem={({ item }) => {
-              if (item) {
-                return item.component;
-              }
-              return null;
-            }}
-            keyExtractor={(item) => (item ? item.key : "default")}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={dynamicStyles.listContent}
-          />
-        </View> */}
-        <View style={dynamicStyles.scrollView}>
+        <View style={styles.scrollView}>
           {sections.map((item) => (
-            // 必须把 key 放在最外层的 View 上
-            <View key={item.key} style={dynamicStyles.itemWrapper}>
+            <View key={item.key} style={styles.itemWrapper}>
               {item.component}
             </View>
           ))}
         </View>
 
-        <View style={dynamicStyles.footer}>
+        <View style={styles.footer}>
           <StyledButton
             text={isLoading ? "保存中..." : "保存设置"}
             onPress={handleSave}
             variant="primary"
             disabled={!hasChanges || isLoading}
-            style={[dynamicStyles.saveButton, (!hasChanges || isLoading) && dynamicStyles.disabledButton]}
+            style={[styles.saveButton, (!hasChanges || isLoading) && styles.disabledButton]}
           />
         </View>
       </ThemedView>
     </KeyboardAwareScrollView>
-    // </KeyboardAvoidingView>
   );
 
-  // 根据设备类型决定是否包装在响应式导航中
   if (deviceType === "tv") {
-    return renderSettingsContent();
+    return content;
   }
 
   return (
     <ResponsiveNavigation>
       <ResponsiveHeader title="设置" showBackButton />
-      {renderSettingsContent()}
+      {content}
     </ResponsiveNavigation>
   );
 }
 
-const createResponsiveStyles = (deviceType: string, spacing: number, insets: any) => {
+const createResponsiveStyles = (
+  deviceType: string,
+  spacing: number,
+  insets: { top: number },
+  surfaceColor: string,
+  borderColor: string
+) => {
   const isMobile = deviceType === "mobile";
   const isTablet = deviceType === "tablet";
   const isTV = deviceType === "tv";
@@ -287,40 +210,51 @@ const createResponsiveStyles = (deviceType: string, spacing: number, insets: any
     container: {
       flex: 1,
       padding: spacing,
-      paddingTop: isTV ? spacing * 2 : isMobile ? insets.top + spacing : insets.top + spacing * 1.5,
+      paddingTop: isTV ? spacing * 1.8 : isMobile ? insets.top + spacing : insets.top + spacing * 1.4,
+      borderRadius: isTV ? 0 : 28,
+      backgroundColor: surfaceColor,
+      margin: isTV ? 0 : spacing,
+      borderWidth: isTV ? 0 : 1,
+      borderColor,
     },
     header: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "center",
       marginBottom: spacing,
+      paddingTop: 4,
+      paddingBottom: spacing * 0.6,
+      borderBottomWidth: 1,
+      borderBottomColor: borderColor,
     },
     title: {
-      fontSize: isMobile ? 24 : isTablet ? 28 : 32,
-      fontWeight: "bold",
-      paddingTop: spacing,
-      color: "white",
+      fontSize: isMobile ? 24 : isTablet ? 28 : 34,
+      lineHeight: isMobile ? 32 : isTablet ? 38 : 44,
+      fontWeight: "700",
+      letterSpacing: 0.3,
+      includeFontPadding: false,
+      textAlignVertical: "center",
+    },
+    subtitle: {
+      marginTop: 6,
+      fontSize: 13,
+      lineHeight: 18,
+      opacity: 0.72,
     },
     scrollView: {
       flex: 1,
     },
-    listContent: {
-      paddingBottom: spacing,
-    },
     footer: {
       paddingTop: spacing,
-      alignItems: isMobile ? "center" : "flex-end",
+      alignItems: isMobile ? "stretch" : "flex-end",
     },
     saveButton: {
-      minHeight: isMobile ? minTouchTarget : isTablet ? 50 : 50,
-      width: isMobile ? "100%" : isTablet ? 140 : 120,
-      maxWidth: isMobile ? 280 : undefined,
+      minHeight: Math.max(52, minTouchTarget),
+      width: isMobile ? "100%" : 220,
+      maxWidth: isMobile ? 320 : undefined,
     },
     disabledButton: {
       opacity: 0.5,
     },
     itemWrapper: {
-      marginBottom: spacing, // 这里的 spacing 来自 useResponsiveLayout()
+      marginBottom: spacing,
     },
   });
 };

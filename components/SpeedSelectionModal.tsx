@@ -1,6 +1,8 @@
-import React from "react";
-import { View, Text, StyleSheet, Modal, FlatList } from "react-native";
+import React, { useMemo } from "react";
+import { FlatList, Modal, StyleSheet, View } from "react-native";
 import { StyledButton } from "./StyledButton";
+import { ThemedText } from "./ThemedText";
+import { useThemeColor } from "@/hooks/useThemeColor";
 import usePlayerStore from "@/stores/playerStore";
 
 interface SpeedOption {
@@ -21,20 +23,61 @@ const SPEED_OPTIONS: SpeedOption[] = [
 export const SpeedSelectionModal: React.FC = () => {
   const { showSpeedModal, setShowSpeedModal, playbackRate, setPlaybackRate } = usePlayerStore();
 
+  const overlay = useThemeColor({}, "overlay");
+  const surface = useThemeColor({}, "surface");
+  const border = useThemeColor({}, "outlineVariant");
+  const textColor = useThemeColor({}, "text");
+
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        modalContainer: {
+          flex: 1,
+          flexDirection: "row",
+          justifyContent: "flex-end",
+          backgroundColor: overlay,
+        },
+        modalContent: {
+          width: 520,
+          height: "100%",
+          backgroundColor: surface,
+          padding: 22,
+          borderLeftWidth: 1,
+          borderLeftColor: border,
+        },
+        modalTitle: {
+          color: textColor,
+          marginBottom: 14,
+          textAlign: "center",
+          fontSize: 20,
+          lineHeight: 26,
+          fontWeight: "700",
+        },
+        speedList: {
+          justifyContent: "flex-start",
+          paddingBottom: 20,
+        },
+        speedItem: {
+          margin: 4,
+          width: "30%",
+        },
+        speedItemText: {
+          fontSize: 14,
+        },
+      }),
+    [border, overlay, surface, textColor]
+  );
+
   const onSelectSpeed = (rate: number) => {
     setPlaybackRate(rate);
     setShowSpeedModal(false);
   };
 
-  const onClose = () => {
-    setShowSpeedModal(false);
-  };
-
   return (
-    <Modal visible={showSpeedModal} transparent={true} animationType="slide" onRequestClose={onClose}>
+    <Modal visible={showSpeedModal} transparent animationType="slide" onRequestClose={() => setShowSpeedModal(false)}>
       <View style={styles.modalContainer}>
         <View style={styles.modalContent}>
-          <Text style={styles.modalTitle}>播放速度</Text>
+          <ThemedText style={styles.modalTitle}>播放速度</ThemedText>
           <FlatList
             data={SPEED_OPTIONS}
             numColumns={3}
@@ -57,37 +100,3 @@ export const SpeedSelectionModal: React.FC = () => {
   );
 };
 
-const styles = StyleSheet.create({
-  modalContainer: {
-    flex: 1,
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    backgroundColor: "transparent",
-  },
-  modalContent: {
-    width: 500,
-    height: "100%",
-    backgroundColor: "rgba(0, 0, 0, 0.85)",
-    padding: 20,
-  },
-  modalTitle: {
-    color: "white",
-    marginBottom: 12,
-    textAlign: "center",
-    fontSize: 18,
-    fontWeight: "bold",
-  },
-  speedList: {
-    justifyContent: "flex-start",
-  },
-  speedItem: {
-    paddingVertical: 10,
-    margin: 4,
-    marginLeft: 10,
-    marginRight: 8,
-    width: "30%",
-  },
-  speedItemText: {
-    fontSize: 16,
-  },
-});

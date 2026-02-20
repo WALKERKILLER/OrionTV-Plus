@@ -1,118 +1,144 @@
-import React, { useState } from "react";
-import { View, Text, StyleSheet, Modal, FlatList } from "react-native";
+import React, { useEffect, useMemo, useRef } from "react";
+import { FlatList, Modal, StyleSheet, View } from "react-native";
 import { StyledButton } from "./StyledButton";
+import { ThemedText } from "./ThemedText";
+import { useThemeColor } from "@/hooks/useThemeColor";
 import usePlayerStore from "@/stores/playerStore";
 
-interface EpisodeSelectionModalProps {}
+const ITEM_HEIGHT = 56;
 
-export const EpisodeSelectionModal: React.FC<EpisodeSelectionModalProps> = () => {
+type EpisodeItem = {
+  index: number;
+  label: string;
+};
+
+export const EpisodeSelectionModal: React.FC = () => {
   const { showEpisodeModal, episodes, currentEpisodeIndex, playEpisode, setShowEpisodeModal } = usePlayerStore();
 
-  const [episodeGroupSize] = useState(30);
-  const [selectedEpisodeGroup, setSelectedEpisodeGroup] = useState(Math.floor(currentEpisodeIndex / episodeGroupSize));
+  const listRef = useRef<FlatList<EpisodeItem>>(null);
+
+  const overlay = useThemeColor({}, "overlay");
+  const surface = useThemeColor({}, "surface");
+  const border = useThemeColor({}, "outlineVariant");
+  const textColor = useThemeColor({}, "text");
+  const iconColor = useThemeColor({}, "icon");
+
+  const episodeItems = useMemo(
+    () =>
+      episodes.map((episode, index) => ({
+        index,
+        label: episode.title?.trim() || `第 ${index + 1} 集`,
+      })),
+    [episodes]
+  );
+
+  useEffect(() => {
+    if (!showEpisodeModal || episodeItems.length === 0) {
+      return;
+    }
+
+    const targetIndex = Math.max(0, Math.min(currentEpisodeIndex, episodeItems.length - 1));
+
+    const timer = setTimeout(() => {
+      listRef.current?.scrollToIndex({
+        index: targetIndex,
+        animated: false,
+        viewPosition: 0.42,
+      });
+    }, 120);
+
+    return () => clearTimeout(timer);
+  }, [currentEpisodeIndex, episodeItems.length, showEpisodeModal]);
+
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        modalContainer: {
+          flex: 1,
+          flexDirection: "row",
+          justifyContent: "flex-end",
+          backgroundColor: overlay,
+        },
+        modalContent: {
+          width: 520,
+          height: "100%",
+          backgroundColor: surface,
+          padding: 20,
+          borderLeftWidth: 1,
+          borderLeftColor: border,
+        },
+        modalTitle: {
+          color: textColor,
+          textAlign: "center",
+          fontSize: 20,
+          lineHeight: 28,
+          fontWeight: "700",
+        },
+        modalSubtitle: {
+          marginTop: 4,
+          marginBottom: 14,
+          textAlign: "center",
+          color: iconColor,
+          fontSize: 13,
+          lineHeight: 18,
+        },
+        episodeList: {
+          paddingBottom: 24,
+        },
+        episodeItem: {
+          width: "100%",
+          marginBottom: 10,
+          minHeight: ITEM_HEIGHT,
+          justifyContent: "flex-start",
+        },
+        episodeItemText: {
+          fontSize: 14,
+          lineHeight: 20,
+          textAlign: "left",
+        },
+      }),
+    [border, iconColor, overlay, surface, textColor]
+  );
 
   const onSelectEpisode = (index: number) => {
     playEpisode(index);
     setShowEpisodeModal(false);
   };
 
-  const onClose = () => {
-    setShowEpisodeModal(false);
-  };
+  const currentLabel = `当前：第 ${Math.max(currentEpisodeIndex + 1, 1)} 集`;
 
   return (
-    <Modal visible={showEpisodeModal} transparent={true} animationType="slide" onRequestClose={onClose}>
+    <Modal visible={showEpisodeModal} transparent animationType="slide" onRequestClose={() => setShowEpisodeModal(false)}>
       <View style={styles.modalContainer}>
         <View style={styles.modalContent}>
-          <Text style={styles.modalTitle}>选择剧集</Text>
+          <ThemedText style={styles.modalTitle}>{"选集"}</ThemedText>
+          <ThemedText style={styles.modalSubtitle}>{currentLabel}</ThemedText>
 
-          {episodes.length > episodeGroupSize && (
-            <View style={styles.episodeGroupContainer}>
-              {Array.from({ length: Math.ceil(episodes.length / episodeGroupSize) }, (_, groupIndex) => (
-                <StyledButton
-                  key={groupIndex}
-                  text={`${groupIndex * episodeGroupSize + 1}-${Math.min(
-                    (groupIndex + 1) * episodeGroupSize,
-                    episodes.length
-                  )}`}
-                  onPress={() => setSelectedEpisodeGroup(groupIndex)}
-                  isSelected={selectedEpisodeGroup === groupIndex}
-                  style={styles.episodeGroupButton}
-                  textStyle={styles.episodeGroupButtonText}
-                />
-              ))}
-            </View>
-          )}
           <FlatList
-            data={episodes.slice(
-              selectedEpisodeGroup * episodeGroupSize,
-              (selectedEpisodeGroup + 1) * episodeGroupSize
-            )}
-            numColumns={5}
+            ref={listRef}
+            data={episodeItems}
             contentContainerStyle={styles.episodeList}
-            keyExtractor={(_, index) => `episode-${selectedEpisodeGroup * episodeGroupSize + index}`}
-            renderItem={({ item, index }) => {
-              const absoluteIndex = selectedEpisodeGroup * episodeGroupSize + index;
-              return (
-                <StyledButton
-                  text={item.title || `第 ${absoluteIndex + 1} 集`}
-                  onPress={() => onSelectEpisode(absoluteIndex)}
-                  isSelected={currentEpisodeIndex === absoluteIndex}
-                  hasTVPreferredFocus={currentEpisodeIndex === absoluteIndex}
-                  style={styles.episodeItem}
-                  textStyle={styles.episodeItemText}
-                />
-              );
+            keyExtractor={(item) => `episode-${item.index}`}
+            getItemLayout={(_, index) => ({ length: ITEM_HEIGHT + 10, offset: (ITEM_HEIGHT + 10) * index, index })}
+            onScrollToIndexFailed={(info) => {
+              listRef.current?.scrollToOffset({
+                offset: Math.max(info.averageItemLength * info.index, 0),
+                animated: false,
+              });
             }}
+            renderItem={({ item }) => (
+              <StyledButton
+                text={item.label}
+                onPress={() => onSelectEpisode(item.index)}
+                isSelected={currentEpisodeIndex === item.index}
+                hasTVPreferredFocus={currentEpisodeIndex === item.index}
+                style={styles.episodeItem}
+                textStyle={styles.episodeItemText}
+              />
+            )}
           />
         </View>
       </View>
     </Modal>
   );
 };
-
-const styles = StyleSheet.create({
-  modalContainer: {
-    flex: 1,
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    backgroundColor: "transparent",
-  },
-  modalContent: {
-    width: 600,
-    height: "100%",
-    backgroundColor: "rgba(0, 0, 0, 0.85)",
-    padding: 20,
-  },
-  modalTitle: {
-    color: "white",
-    marginBottom: 12,
-    textAlign: "center",
-    fontSize: 18,
-    fontWeight: "bold",
-  },
-  episodeList: {
-    justifyContent: "flex-start",
-  },
-  episodeItem: {
-    paddingVertical: 2,
-    margin: 4,
-    width: "18%",
-  },
-  episodeItemText: {
-    fontSize: 14,
-  },
-  episodeGroupContainer: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "center",
-    paddingHorizontal: 10,
-  },
-  episodeGroupButton: {
-    paddingHorizontal: 6,
-    margin: 8,
-  },
-  episodeGroupButtonText: {
-    fontSize: 12,
-  },
-});

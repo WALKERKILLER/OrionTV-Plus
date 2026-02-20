@@ -17,11 +17,11 @@ import Toast from "react-native-toast-message";
 import usePlayerStore, { selectCurrentEpisode } from "@/stores/playerStore";
 import { useResponsiveLayout } from "@/hooks/useResponsiveLayout";
 import { useVideoHandlers } from "@/hooks/useVideoHandlers";
+import { useThemeColor } from "@/hooks/useThemeColor";
 import Logger from '@/utils/Logger';
 
 const logger = Logger.withTag('PlayScreen');
 
-// 优化的加载动画组件
 const LoadingContainer = memo(
   ({ style, currentEpisode }: { style: any; currentEpisode: { url: string; title: string } | undefined }) => {
     logger.info(
@@ -39,21 +39,18 @@ const LoadingContainer = memo(
 
 LoadingContainer.displayName = "LoadingContainer";
 
-// 移到组件外部避免重复创建
-const createResponsiveStyles = (deviceType: string) => {
+const createResponsiveStyles = (deviceType: string, backgroundColor: string, overlayColor: string) => {
   const isMobile = deviceType === "mobile";
   const isTablet = deviceType === "tablet";
 
   return StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: "black",
-      // 移动端和平板端可能需要状态栏处理
+      backgroundColor,
       ...(isMobile || isTablet ? { paddingTop: 0 } : {}),
     },
     videoContainer: {
       ...StyleSheet.absoluteFillObject,
-      // 为触摸设备添加更多的交互区域
       ...(isMobile || isTablet ? { zIndex: 1 } : {}),
     },
     videoPlayer: {
@@ -61,7 +58,7 @@ const createResponsiveStyles = (deviceType: string) => {
     },
     loadingContainer: {
       ...StyleSheet.absoluteFillObject,
-      backgroundColor: "rgba(0, 0, 0, 0.8)",
+      backgroundColor: overlayColor,
       justifyContent: "center",
       alignItems: "center",
       zIndex: 10,
@@ -70,11 +67,12 @@ const createResponsiveStyles = (deviceType: string) => {
 };
 
 export default function PlayScreen() {
+  const backgroundColor = useThemeColor({}, "background");
+  const overlayColor = useThemeColor({}, "overlay");
   const videoRef = useRef<Video>(null);
   const router = useRouter();
   useKeepAwake();
 
-  // 响应式布局配置
   const { deviceType } = useResponsiveLayout();
 
   const {
@@ -113,7 +111,6 @@ export default function PlayScreen() {
   } = usePlayerStore();
   const currentEpisode = usePlayerStore(selectCurrentEpisode);
 
-  // 使用Video事件处理hook
   const { videoProps } = useVideoHandlers({
     videoRef,
     currentEpisode,
@@ -125,11 +122,9 @@ export default function PlayScreen() {
     detail: detail || undefined,
   });
 
-  // TV遥控器处理 - 总是调用hook，但根据设备类型决定是否使用结果
   const tvRemoteHandler = useTVRemoteHandler();
 
-  // 优化的动态样式 - 使用useMemo避免重复计算
-  const dynamicStyles = useMemo(() => createResponsiveStyles(deviceType), [deviceType]);
+  const dynamicStyles = useMemo(() => createResponsiveStyles(deviceType, backgroundColor, overlayColor), [deviceType, backgroundColor, overlayColor]);
 
   useEffect(() => {
     const perfStart = performance.now();
@@ -152,7 +147,6 @@ export default function PlayScreen() {
     };
   }, [episodeIndex, source, position, setVideoRef, reset, loadVideo, id, title]);
 
-  // 优化的屏幕点击处理
   const onScreenPress = useCallback(() => {
     if (deviceType === "tv") {
       tvRemoteHandler.onScreenPress();
@@ -197,7 +191,7 @@ export default function PlayScreen() {
       timeoutId = setTimeout(() => {
         if (usePlayerStore.getState().isLoading) {
           usePlayerStore.setState({ isLoading: false });
-          Toast.show({ type: "error", text1: "播放超时，请重试" });
+          Toast.show({ type: "error", text1: "\u64ad\u653e\u5668\u52a0\u8f7d\u8d85\u65f6" });
         }
       }, 60000); // 1 minute
     }
@@ -219,9 +213,9 @@ export default function PlayScreen() {
         activeOpacity={1}
         style={dynamicStyles.videoContainer}
         onPress={onScreenPress}
-        disabled={deviceType !== "tv" && showControls} // 移动端和平板端在显示控制条时禁用触摸
+        disabled={deviceType !== "tv" && showControls} // Disable touch on mobile/tablet when controls are visible
       >
-        {/* 条件渲染Video组件：只有在有有效URL时才渲染 */}
+        {/* */}
         {currentEpisode?.url ? (
           <Video ref={videoRef} style={dynamicStyles.videoPlayer} {...videoProps} />
         ) : (
@@ -234,7 +228,7 @@ export default function PlayScreen() {
 
         <SeekingBar />
 
-        {/* 只在Video组件存在且正在加载时显示加载动画覆盖层 */}
+        {/* */}
         {currentEpisode?.url && isLoading && (
           <View style={dynamicStyles.loadingContainer}>
             <VideoLoadingAnimation showProgressBar />
@@ -250,3 +244,4 @@ export default function PlayScreen() {
     </ThemedView>
   );
 }
+

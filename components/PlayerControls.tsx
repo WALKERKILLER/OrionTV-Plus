@@ -1,20 +1,47 @@
-import React from "react";
-import { View, Text, StyleSheet, Pressable } from "react-native";
-import { Pause, Play, SkipForward, List, Tv, ArrowDownToDot, ArrowUpFromDot, Gauge } from "lucide-react-native";
-import { ThemedText } from "@/components/ThemedText";
+import React, { useMemo } from "react";
+import { StyleSheet, View } from "react-native";
+import {
+  ArrowDownToDot,
+  ArrowUpFromDot,
+  Gauge,
+  List,
+  Pause,
+  Play,
+  Shield,
+  SkipForward,
+  Tv,
+} from "lucide-react-native";
 import { MediaButton } from "@/components/MediaButton";
-
+import { ThemedText } from "@/components/ThemedText";
+import { useThemeColor } from "@/hooks/useThemeColor";
 import usePlayerStore from "@/stores/playerStore";
 import useDetailStore from "@/stores/detailStore";
-import { useSources } from "@/stores/sourceStore";
 import { useSettingsStore } from "@/stores/settingsStore";
+import { useSources } from "@/stores/sourceStore";
 
 interface PlayerControlsProps {
   showControls: boolean;
   setShowControls: (show: boolean) => void;
 }
 
-export const PlayerControls: React.FC<PlayerControlsProps> = ({ showControls, setShowControls }) => {
+const formatEpisodeLabel = (title: string | undefined, episodeIndex: number) => {
+  if (title && /第\s*\d+\s*集/.test(title)) {
+    return title;
+  }
+
+  if (title) {
+    const matched = title.match(/(?:episode|ep)\s*([0-9]+)/i);
+    if (matched) {
+      return `第 ${matched[1]} 集`;
+    }
+
+    return title;
+  }
+
+  return `第 ${episodeIndex + 1} 集`;
+};
+
+export const PlayerControls: React.FC<PlayerControlsProps> = ({ showControls }) => {
   const {
     currentEpisodeIndex,
     episodes,
@@ -39,15 +66,101 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({ showControls, se
   const resources = useSources();
   const { vodAdBlockEnabled, setVodAdBlockEnabled } = useSettingsStore();
 
+  const textColor = useThemeColor({}, "text");
+  const overlayColor = useThemeColor({}, "overlay");
+  const cardColor = useThemeColor({}, "surface");
+  const borderColor = useThemeColor({}, "outlineVariant");
+  const primaryColor = useThemeColor({}, "primary");
+  const onPrimaryColor = useThemeColor({}, "onPrimary");
+
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        controlsOverlay: {
+          ...StyleSheet.absoluteFillObject,
+          backgroundColor: overlayColor,
+          justifyContent: "space-between",
+          paddingHorizontal: 24,
+          paddingVertical: 20,
+        },
+        topPanel: {
+          borderRadius: 22,
+          borderWidth: 1,
+          borderColor,
+          backgroundColor: cardColor,
+          paddingVertical: 14,
+          paddingHorizontal: 18,
+        },
+        title: {
+          color: textColor,
+          fontSize: 18,
+          lineHeight: 24,
+          fontWeight: "700",
+          textAlign: "center",
+        },
+        bottomPanel: {
+          borderRadius: 24,
+          borderWidth: 1,
+          borderColor,
+          backgroundColor: cardColor,
+          padding: 18,
+        },
+        progressTrack: {
+          height: 8,
+          borderRadius: 999,
+          backgroundColor: "rgba(127, 127, 127, 0.28)",
+          overflow: "hidden",
+        },
+        progressFill: {
+          height: 8,
+          borderRadius: 999,
+          backgroundColor: primaryColor,
+        },
+        timeText: {
+          color: textColor,
+          marginTop: 8,
+          fontSize: 14,
+          lineHeight: 18,
+          textAlign: "center",
+          opacity: 0.85,
+        },
+        controlsRow: {
+          flexDirection: "row",
+          justifyContent: "center",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: 12,
+          marginTop: 14,
+        },
+        adIconWrap: {
+          width: 30,
+          height: 30,
+          borderRadius: 15,
+          justifyContent: "center",
+          alignItems: "center",
+          borderWidth: 1,
+          borderColor: vodAdBlockEnabled ? primaryColor : borderColor,
+          backgroundColor: vodAdBlockEnabled ? primaryColor : "transparent",
+        },
+      }),
+    [borderColor, cardColor, overlayColor, primaryColor, textColor, vodAdBlockEnabled]
+  );
+
   const videoTitle = detail?.title || "";
   const currentEpisode = episodes[currentEpisodeIndex];
-  const currentEpisodeTitle = currentEpisode?.title;
-  const currentSource = resources.find((r) => r.source === detail?.source);
+  const currentEpisodeTitle = useMemo(
+    () => formatEpisodeLabel(currentEpisode?.title, currentEpisodeIndex),
+    [currentEpisode?.title, currentEpisodeIndex]
+  );
+  const currentSource = resources.find((resource) => resource.source === detail?.source);
   const currentSourceName = currentSource?.source_name;
   const hasNextEpisode = currentEpisodeIndex < (episodes.length || 0) - 1;
 
   const formatTime = (milliseconds: number) => {
-    if (!milliseconds) return "00:00";
+    if (!milliseconds) {
+      return "00:00";
+    }
+
     const totalSeconds = Math.floor(milliseconds / 1000);
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
@@ -66,178 +179,67 @@ export const PlayerControls: React.FC<PlayerControlsProps> = ({ showControls, se
   };
 
   return (
-    <View style={styles.controlsOverlay}>
-      <View style={styles.topControls}>
-        <Text style={styles.controlTitle}>
-          {videoTitle} {currentEpisodeTitle ? `- ${currentEpisodeTitle}` : ""}{" "}
-          {currentSourceName ? `(${currentSourceName})` : ""}
-        </Text>
+    <View style={styles.controlsOverlay} pointerEvents={showControls ? "auto" : "none"}>
+      <View style={styles.topPanel}>
+        <ThemedText style={styles.title}>
+          {videoTitle} {currentEpisodeTitle ? `- ${currentEpisodeTitle}` : ""} {currentSourceName ? `(${currentSourceName})` : ""}
+        </ThemedText>
       </View>
 
-      <View style={styles.bottomControlsContainer}>
-        <View style={styles.progressBarContainer}>
-          <View style={styles.progressBarBackground} />
+      <View style={styles.bottomPanel}>
+        <View style={styles.progressTrack}>
           <View
             style={[
-              styles.progressBarFilled,
+              styles.progressFill,
               {
                 width: `${(isSeeking ? seekPosition : progressPosition) * 100}%`,
               },
             ]}
           />
-          <Pressable style={styles.progressBarTouchable} />
         </View>
 
-        <ThemedText style={{ color: "white", marginTop: 5 }}>
+        <ThemedText style={styles.timeText}>
           {status?.isLoaded
             ? `${formatTime(status.positionMillis)} / ${formatTime(status.durationMillis || 0)}`
             : "00:00 / 00:00"}
         </ThemedText>
 
-        <View style={styles.bottomControls}>
+        <View style={styles.controlsRow}>
           <MediaButton onPress={setIntroEndTime} timeLabel={introEndTime ? formatTime(introEndTime) : undefined}>
-            <ArrowDownToDot color="white" size={24} />
+            <ArrowDownToDot color={textColor} size={24} />
           </MediaButton>
 
           <MediaButton onPress={togglePlayPause} hasTVPreferredFocus={showControls}>
-            {status?.isLoaded && status.isPlaying ? (
-              <Pause color="white" size={24} />
-            ) : (
-              <Play color="white" size={24} />
-            )}
+            {status?.isLoaded && status.isPlaying ? <Pause color={textColor} size={24} /> : <Play color={textColor} size={24} />}
           </MediaButton>
 
           <MediaButton onPress={onPlayNextEpisode} disabled={!hasNextEpisode}>
-            <SkipForward color={hasNextEpisode ? "white" : "#666"} size={24} />
+            <SkipForward color={hasNextEpisode ? textColor : borderColor} size={24} />
           </MediaButton>
 
           <MediaButton onPress={setOutroStartTime} timeLabel={outroStartTime ? formatTime(outroStartTime) : undefined}>
-            <ArrowUpFromDot color="white" size={24} />
+            <ArrowUpFromDot color={textColor} size={24} />
           </MediaButton>
 
           <MediaButton onPress={() => setShowEpisodeModal(true)}>
-            <List color="white" size={24} />
+            <List color={textColor} size={24} />
           </MediaButton>
 
           <MediaButton onPress={() => setShowSpeedModal(true)} timeLabel={playbackRate !== 1.0 ? `${playbackRate}x` : undefined}>
-            <Gauge color="white" size={24} />
+            <Gauge color={textColor} size={24} />
           </MediaButton>
 
           <MediaButton onPress={onToggleVodAdBlock} isSelected={vodAdBlockEnabled}>
-            <View style={[styles.adBlockIcon, vodAdBlockEnabled ? styles.adBlockIconEnabled : styles.adBlockIconDisabled]}>
-              <Text style={styles.adBlockIconText}>AD</Text>
+            <View style={styles.adIconWrap}>
+              <Shield color={vodAdBlockEnabled ? onPrimaryColor : textColor} size={18} strokeWidth={2.4} />
             </View>
           </MediaButton>
 
           <MediaButton onPress={() => setShowSourceModal(true)}>
-            <Tv color="white" size={24} />
+            <Tv color={textColor} size={24} />
           </MediaButton>
         </View>
       </View>
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  controlsOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0, 0, 0, 0.4)",
-    justifyContent: "space-between",
-    padding: 20,
-  },
-  topControls: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  controlTitle: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "bold",
-    flex: 1,
-    textAlign: "center",
-    marginHorizontal: 10,
-  },
-  bottomControlsContainer: {
-    width: "100%",
-    alignItems: "center",
-  },
-  bottomControls: {
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    gap: 10,
-    flexWrap: "wrap",
-    marginTop: 15,
-  },
-  progressBarContainer: {
-    width: "100%",
-    height: 8,
-    position: "relative",
-    marginTop: 10,
-  },
-  progressBarBackground: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    height: 8,
-    backgroundColor: "rgba(255, 255, 255, 0.3)",
-    borderRadius: 4,
-  },
-  progressBarFilled: {
-    position: "absolute",
-    left: 0,
-    height: 8,
-    backgroundColor: "#fff",
-    borderRadius: 4,
-  },
-  progressBarTouchable: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    height: 30,
-    top: -10,
-    zIndex: 10,
-  },
-  controlButton: {
-    padding: 10,
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  topRightContainer: {
-    padding: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    minWidth: 44, // Match TouchableOpacity default size for alignment
-  },
-  resolutionText: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "bold",
-    backgroundColor: "rgba(0,0,0,0.5)",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  adBlockIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.4)",
-  },
-  adBlockIconEnabled: {
-    backgroundColor: "rgba(34, 197, 94, 0.28)",
-  },
-  adBlockIconDisabled: {
-    backgroundColor: "rgba(255, 255, 255, 0.12)",
-  },
-  adBlockIconText: {
-    color: "#fff",
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 0.5,
-  },
-});

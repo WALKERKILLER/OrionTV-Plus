@@ -1,13 +1,13 @@
-import React, { useState, useRef, useImperativeHandle, forwardRef } from "react";
-import { View, TextInput, StyleSheet, Animated, Platform } from "react-native";
-import { useTVEventHandler } from "react-native";
+import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { Animated, Pressable, StyleSheet, TextInput, View, findNodeHandle } from "react-native";
+
 import { ThemedText } from "@/components/ThemedText";
-import { SettingsSection } from "./SettingsSection";
-import { useSettingsStore } from "@/stores/settingsStore";
-import { useRemoteControlStore } from "@/stores/remoteControlStore";
 import { useButtonAnimation } from "@/hooks/useAnimation";
-import { Colors } from "@/constants/Colors";
-import { useResponsiveLayout } from "@/hooks/useResponsiveLayout";
+import { useThemeColor } from "@/hooks/useThemeColor";
+import { useRemoteControlStore } from "@/stores/remoteControlStore";
+import { useSettingsStore } from "@/stores/settingsStore";
+
+import { SettingsSection } from "./SettingsSection";
 
 interface APIConfigSectionProps {
   onChanged: () => void;
@@ -15,6 +15,8 @@ interface APIConfigSectionProps {
   onBlur?: () => void;
   onPress?: () => void;
   hideDescription?: boolean;
+  nextFocusUp?: number;
+  onPrimaryInputHandleChange?: (handle: number | undefined) => void;
 }
 
 export interface APIConfigSectionRef {
@@ -22,14 +24,77 @@ export interface APIConfigSectionRef {
 }
 
 export const APIConfigSection = forwardRef<APIConfigSectionRef, APIConfigSectionProps>(
-  ({ onChanged, onFocus, onBlur, onPress, hideDescription = false }, ref) => {
+  ({ onChanged, onFocus, onBlur, onPress, hideDescription = false, nextFocusUp, onPrimaryInputHandleChange }, ref) => {
     const { apiBaseUrl, cronPassword, setApiBaseUrl, setCronPassword, remoteInputEnabled } = useSettingsStore();
     const { serverUrl } = useRemoteControlStore();
-    const [isInputFocused, setIsInputFocused] = useState(false);
+
+    const [focusedInputKey, setFocusedInputKey] = useState<"api" | "cron" | null>(null);
     const [isSectionFocused, setIsSectionFocused] = useState(false);
+    const [selection, setSelection] = useState<{ start: number; end: number }>({ start: 0, end: 0 });
+    const [primaryInputHandle, setPrimaryInputHandle] = useState<number | undefined>(undefined);
+    const [secondaryInputHandle, setSecondaryInputHandle] = useState<number | undefined>(undefined);
+    const [entryHandle, setEntryHandle] = useState<number | undefined>(undefined);
+
+    const entryRef = useRef<View>(null);
     const inputRef = useRef<TextInput>(null);
+    const cronInputRef = useRef<TextInput>(null);
     const inputAnimationStyle = useButtonAnimation(isSectionFocused, 1.01);
-    const deviceType = useResponsiveLayout().deviceType;
+
+    const surfaceVariant = useThemeColor({}, "surfaceVariant");
+    const textColor = useThemeColor({}, "text");
+    const mutedColor = useThemeColor({}, "icon");
+    const outlineColor = useThemeColor({}, "outlineVariant");
+    const focusRingColor = useThemeColor({}, "focusRing");
+
+    const styles = useMemo(
+      () =>
+        StyleSheet.create({
+          sectionEntry: {
+            width: "100%",
+          },
+          inputContainer: {
+            marginBottom: 8,
+          },
+          titleContainer: {
+            flexDirection: "row",
+            alignItems: "center",
+            marginBottom: 10,
+          },
+          sectionTitle: {
+            fontSize: 16,
+            lineHeight: 22,
+            fontWeight: "700",
+            marginRight: 12,
+          },
+          subtitle: {
+            fontSize: 12,
+            lineHeight: 16,
+            color: mutedColor,
+          },
+          input: {
+            minHeight: 50,
+            borderWidth: 1,
+            borderRadius: 16,
+            paddingHorizontal: 14,
+            fontSize: 15,
+            backgroundColor: surfaceVariant,
+            color: textColor,
+            borderColor: outlineColor,
+          },
+          inputFocused: {
+            borderColor: focusRingColor,
+            shadowColor: focusRingColor,
+            shadowOffset: { width: 0, height: 0 },
+            shadowOpacity: 0.35,
+            shadowRadius: 9,
+            elevation: 4,
+          },
+          secondaryInput: {
+            marginTop: 10,
+          },
+        }),
+      [focusRingColor, mutedColor, outlineColor, surfaceVariant, textColor]
+    );
 
     const handleUrlChange = (url: string) => {
       setApiBaseUrl(url);
@@ -48,143 +113,123 @@ export const APIConfigSection = forwardRef<APIConfigSectionRef, APIConfigSection
       },
     }));
 
-    const handleSectionFocus = () => {
+    useEffect(() => {
+      onPrimaryInputHandleChange?.(entryHandle);
+    }, [entryHandle, onPrimaryInputHandleChange]);
+
+    useEffect(() => {
+      const timer = setTimeout(() => {
+        const handle = findNodeHandle(entryRef.current) || undefined;
+        setEntryHandle(handle);
+      }, 0);
+
+      return () => clearTimeout(timer);
+    }, []);
+
+
+    const handleInputFocus = (value: string, inputKey: "api" | "cron") => {
+      setFocusedInputKey(inputKey);
       setIsSectionFocused(true);
       onFocus?.();
+
+      const end = value.length;
+      setSelection({ start: end, end });
     };
 
-    const handleSectionBlur = () => {
+    const handleInputBlur = () => {
+      setFocusedInputKey(null);
       setIsSectionFocused(false);
       onBlur?.();
     };
-
-    // TV遥控器事件处理
-    const handleTVEvent = React.useCallback(
-      (event: any) => {
-        if (isSectionFocused && event.eventType === "select") {
-          inputRef.current?.focus();
-        }
-      },
-      [isSectionFocused],
-    );
 
     const handlePress = () => {
       inputRef.current?.focus();
       onPress?.();
     };
 
-    useTVEventHandler(handleTVEvent);
-
-    const [selection, setSelection] = useState<{ start: number; end: number }>({
-      start: 0,
-      end: 0,
-    });
-    // 当用户手动移动光标或选中文本时，同步到 state（可选）
-    const onSelectionChange = ({ nativeEvent: { selection } }: any) => {
-      setSelection(selection);
+    const handleEntryFocus = () => {
+      setIsSectionFocused(true);
+      onFocus?.();
+      requestAnimationFrame(() => {
+        inputRef.current?.focus();
+      });
     };
 
     return (
-      <SettingsSection
-        focusable
-        onFocus={handleSectionFocus}
-        onBlur={handleSectionBlur}
-        {...(Platform.isTV || deviceType !== "tv" ? undefined : { onPress: handlePress })}
-      >
-        <View style={styles.inputContainer}>
-          <View style={styles.titleContainer}>
-            <ThemedText style={styles.sectionTitle}>API 地址</ThemedText>
-            {!hideDescription && remoteInputEnabled && serverUrl && (
-              <ThemedText style={styles.subtitle}>用手机访问 {serverUrl}，可远程输入</ThemedText>
-            )}
+      <SettingsSection focusable={false}>
+        <Pressable
+          ref={entryRef}
+          focusable
+          style={styles.sectionEntry}
+          onFocus={handleEntryFocus}
+          onBlur={() => {
+            if (!focusedInputKey) {
+              setIsSectionFocused(false);
+              onBlur?.();
+            }
+          }}
+          onPress={handlePress}
+          onLayout={() => {
+            const handle = findNodeHandle(entryRef.current) || undefined;
+            setEntryHandle(handle);
+          }}
+          nextFocusUp={nextFocusUp}
+        >
+          <View style={styles.inputContainer}>
+            <View style={styles.titleContainer}>
+              <ThemedText style={styles.sectionTitle}>接口地址</ThemedText>
+              {!hideDescription && remoteInputEnabled && serverUrl ? (
+                <ThemedText style={styles.subtitle}>远程输入地址：{serverUrl}</ThemedText>
+              ) : null}
+            </View>
+
+            <Animated.View style={inputAnimationStyle}>
+              <TextInput
+                ref={inputRef}
+                focusable
+                style={[styles.input, focusedInputKey === "api" && styles.inputFocused]}
+                value={apiBaseUrl}
+                onChangeText={handleUrlChange}
+                placeholder="请输入服务端地址"
+                placeholderTextColor={mutedColor}
+                autoCapitalize="none"
+                autoCorrect={false}
+                selection={selection}
+                onSelectionChange={({ nativeEvent }) => setSelection(nativeEvent.selection)}
+                onFocus={() => handleInputFocus(apiBaseUrl, "api")}
+                onBlur={handleInputBlur}
+                onLayout={() => {
+                  const handle = findNodeHandle(inputRef.current) || undefined;
+                  setPrimaryInputHandle(handle);
+                }}
+                nextFocusUp={nextFocusUp}
+                nextFocusDown={secondaryInputHandle}
+              />
+
+              <TextInput
+                ref={cronInputRef}
+                focusable
+                style={[styles.input, styles.secondaryInput, focusedInputKey === "cron" && styles.inputFocused]}
+                value={cronPassword}
+                onChangeText={handleCronPasswordChange}
+                placeholder="计划任务密码"
+                placeholderTextColor={mutedColor}
+                autoCapitalize="none"
+                autoCorrect={false}
+                onFocus={() => handleInputFocus(cronPassword, "cron")}
+                onBlur={handleInputBlur}
+                onLayout={() => {
+                  const handle = findNodeHandle(cronInputRef.current) || undefined;
+                  setSecondaryInputHandle(handle);
+                }}
+                nextFocusUp={primaryInputHandle}
+              />
+            </Animated.View>
           </View>
-          <Animated.View style={inputAnimationStyle}>
-            <TextInput
-              ref={inputRef}
-              style={[styles.input, isInputFocused && styles.inputFocused]}
-              value={apiBaseUrl}
-              onChangeText={handleUrlChange}
-              placeholder="输入服务器地址"
-              placeholderTextColor="#888"
-              autoCapitalize="none"
-              autoCorrect={false}
-              onFocus={() => {
-                setIsInputFocused(true);
-                // 将光标移动到文本末尾
-                const end = apiBaseUrl.length;
-                setSelection({ start: end, end: end });
-                // 有时需要延迟一下，让系统先完成 focus 再设置 selection
-                //（在 Android 上更可靠）
-                setTimeout(() => {
-                  // 对于受控的 selection 已经生效，这里仅作保险
-                  inputRef.current?.setNativeProps({ selection: { start: end, end: end } });
-                }, 0);
-              }}
-              selection={selection}
-              onSelectionChange={onSelectionChange} // 可选
-              onBlur={() => setIsInputFocused(false)}
-            />
-            <TextInput
-              style={[styles.input, styles.secondaryInput]}
-              value={cronPassword}
-              onChangeText={handleCronPasswordChange}
-              placeholder="Cron 密码（默认 cron_secure_password，可改）"
-              placeholderTextColor="#888"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-          </Animated.View>
-        </View>
+        </Pressable>
       </SettingsSection>
     );
-  },
+  }
 );
 
-APIConfigSection.displayName = "APIConfigSection";
-
-const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: "bold",
-    marginRight: 12,
-  },
-  subtitle: {
-    fontSize: 12,
-    color: "#888",
-    fontStyle: "italic",
-  },
-  inputContainer: {
-    marginBottom: 12,
-  },
-  label: {
-    fontSize: 16,
-    marginBottom: 8,
-    color: "#ccc",
-  },
-  input: {
-    height: 50,
-    borderWidth: 2,
-    borderRadius: 8,
-    paddingHorizontal: 15,
-    fontSize: 16,
-    backgroundColor: "#3a3a3c",
-    color: "white",
-    borderColor: "transparent",
-  },
-  inputFocused: {
-    borderColor: Colors.dark.primary,
-    shadowColor: Colors.dark.primary,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 10,
-    elevation: 5,
-  },
-  secondaryInput: {
-    marginTop: 10,
-  },
-});
+APIConfigSection.displayName = "接口配置区块";
